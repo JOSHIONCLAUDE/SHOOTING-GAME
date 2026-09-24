@@ -66,7 +66,27 @@
   <button class="btn" id="playBtn">▶ Play</button>
   <button class="btn secondary" id="levelSelectBtn">🗺 Level Select</button>
   <button class="btn secondary" id="armoryBtn">🎒 Armory</button>
+  <button class="btn secondary" id="versusBtn">⚔ 1v1 Online</button>
   <button class="btn secondary" id="resetBtn" style="background:#7f1d1d">Reset Progress</button>
+</div>
+
+<div id="versusMenuScreen" class="overlay" style="display:none">
+  <h1>1v1 Online Duel</h1>
+  <p style="max-width:420px">Play live against a friend on another computer. One of you creates a match and shares the code; the other joins with it.</p>
+  <button class="btn" id="versusCreateBtn">Create Match</button>
+  <div style="margin:14px 0;">— or —</div>
+  <input type="text" id="versusCodeInput" maxlength="14" placeholder="Enter friend's code">
+  <br>
+  <button class="btn" id="versusJoinBtn">Join Match</button>
+  <p id="versusStatus" style="min-height:24px;color:#f1c40f;max-width:420px;"></p>
+  <button class="btn secondary" id="versusBackBtn">Back</button>
+</div>
+
+<div id="versusEndScreen" class="overlay" style="display:none">
+  <h1 id="versusResultTitle">You Win!</h1>
+  <p id="versusResultStats"></p>
+  <button class="btn" id="versusRematchBtn">Rematch</button>
+  <button class="btn secondary" id="versusEndMenuBtn">Menu</button>
 </div>
 
 <div id="levelSelectScreen" class="overlay" style="display:none">
@@ -116,6 +136,7 @@
   <div style="margin-top:6px;">Shield <span id="shieldPct">100%</span> [Hold K]</div>
   <div id="shieldBarBg"><div id="shieldBarFill"></div></div>
   <div id="ammoDisplay" style="margin-top:6px; font-weight:bold;">Ammo: 12/12</div>
+  <div id="medkitDisplay" style="margin-top:4px;">Medkits: 1 [J to heal]</div>
   <div id="weaponBar" style="margin-top:8px; display:flex; gap:6px; flex-wrap:wrap; max-width:320px;"></div>
 </div>
 <div id="topRightHud" style="display:none">
@@ -125,6 +146,20 @@
 <div id="bossBarWrap"><div id="bossName">BOSS</div><div id="bossBarBg"><div id="bossBarFill"></div></div></div>
 <div id="pauseHint" style="display:none">ESC to pause</div>
 
+<div id="versusHud" style="display:none; position:absolute; top:10px; left:10px; right:10px; color:#fff; text-shadow:1px 1px 2px #000; z-index:5;">
+  <div style="display:flex; justify-content:space-between;">
+    <div style="width:45%;">
+      <div id="versusYouName">You</div>
+      <div style="width:100%; height:18px; background:#333; border:2px solid #3498db; border-radius:3px; overflow:hidden;"><div id="versusHealthBarFill" style="height:100%; background:#3498db; width:100%;"></div></div>
+    </div>
+    <div style="width:45%; text-align:right;">
+      <div id="versusOppName">Opponent</div>
+      <div style="width:100%; height:18px; background:#333; border:2px solid #e74c3c; border-radius:3px; overflow:hidden;"><div id="versusOppHealthBarFill" style="height:100%; background:#e74c3c; width:100%; margin-left:auto;"></div></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.2/dist/peerjs.min.js"></script>
 <script>
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -145,12 +180,19 @@ const SAVE_KEY = 'sideShooterProfile_v2';
 
 // ---------- Persistent profile ----------
 function loadProfile() {
-  try { const raw = localStorage.getItem(SAVE_KEY); if (raw) return JSON.parse(raw); } catch (e) {}
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (raw) {
+      const p = JSON.parse(raw);
+      if (p.upgrades && p.upgrades.medkit === undefined) p.upgrades.medkit = 0;
+      return p;
+    }
+  } catch (e) {}
   return null;
 }
 function saveProfile() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(profile)); } catch (e) {} }
 function defaultProfile(name) {
-  return { name, coins:0, unlockedLevel:1, completedLevels:[], ownedWeapons:['pistol'], upgrades:{vest:0,boots:0}, totalScore:0 };
+  return { name, coins:0, unlockedLevel:1, completedLevels:[], ownedWeapons:['pistol'], upgrades:{vest:0,boots:0,medkit:0}, totalScore:0 };
 }
 let profile = loadProfile();
 let currentGunId = 'pistol';
@@ -218,12 +260,13 @@ let bullets = [], enemies = [], particles = [], enemyProjectiles = [], traps = [
 let damageFlash = 0, screenShake = 0;
 let beamFiring = false;
 let coyoteTimer = 0, jumpBufferTimer = 0, jumpQueued = false;
+let cameraX = 0;
 let ammoState = {};
 let muzzleFlashTimer = 0;
 let killStreak = 0, killStreakTimer = 0;
 const KILL_WORDS = ['Nice!', 'Good!', 'Great!', 'Excellent!', 'Superb!', 'Amazing!', 'Unstoppable!', 'Godlike!'];
 
-const player = { x:0, y:GROUND_Y, w:28, h:46, vx:0, vy:0, speed:5, onGround:true, health:100, maxHealth:100, facing:1, invuln:0, shieldMeter:100, shieldActive:false };
+const player = { x:0, y:GROUND_Y, w:28, h:46, vx:0, vy:0, speed:5, onGround:true, health:100, maxHealth:100, facing:1, invuln:0, shieldMeter:100, shieldActive:false, medkits:1, medkitCooldown:0 };
 function damagePlayer(amount) { if (!player.shieldActive) player.health -= amount; }
 const keys = {};
 let mouse = { x:0, y:0, down:false };
@@ -237,7 +280,7 @@ const stars = Array.from({ length: 60 }, () => ({
 
 // ---------- Screen management ----------
 function showScreen(id) {
-  ['profileScreen','mainMenu','levelSelectScreen','armoryScreen','pauseOverlay','levelCompleteScreen','gameOverScreen'].forEach(s => {
+  ['profileScreen','mainMenu','levelSelectScreen','armoryScreen','pauseOverlay','levelCompleteScreen','gameOverScreen','versusMenuScreen','versusEndScreen'].forEach(s => {
     document.getElementById(s).style.display = (s === id) ? 'flex' : 'none';
   });
 }
@@ -247,6 +290,7 @@ function showMainMenu() {
   document.getElementById('topRightHud').style.display = 'none';
   document.getElementById('pauseHint').style.display = 'none';
   document.getElementById('bossBarWrap').style.display = 'none';
+  document.getElementById('versusHud').style.display = 'none';
   document.getElementById('welcomeText').textContent = 'Welcome, ' + profile.name + '!';
   document.getElementById('menuStats').textContent = '💰 ' + profile.coins + ' coins   •   Levels cleared: ' + profile.completedLevels.length + '/100';
   showScreen('mainMenu');
@@ -284,7 +328,7 @@ function buildArmory() {
   });
   const ul = document.getElementById('upgradeList');
   ul.innerHTML = '';
-  [{ id:'vest', name:'Health Vest', desc:'+15 Max HP', max:3 }, { id:'boots', name:'Speed Boots', desc:'+0.6 Speed', max:3 }].forEach(u => {
+  [{ id:'vest', name:'Health Vest', desc:'+15 Max HP', max:3 }, { id:'boots', name:'Speed Boots', desc:'+0.6 Speed', max:3 }, { id:'medkit', name:'Medkit Case', desc:'+1 Medkit per level', max:3 }].forEach(u => {
     const lvl = profile.upgrades[u.id];
     const cost = 60 + lvl * 70;
     const card = document.createElement('div');
@@ -313,7 +357,7 @@ function switchGun(id) { if (profile.ownedWeapons.includes(id)) { currentGunId =
 
 // ---------- Input ----------
 window.addEventListener('keydown', e => {
-  if (e.key === ' ' || (running && ['a', 'd', 'w', 'k', 'r'].includes(e.key.toLowerCase()))) e.preventDefault();
+  if (e.key === ' ' || (running && ['a', 'd', 'w', 'k', 'r', 'j'].includes(e.key.toLowerCase()))) e.preventDefault();
   keys[e.key.toLowerCase()] = true;
   if (e.key === 'Shift') zoom = ZOOM_LEVEL;
   if ((e.key === ' ' || e.key.toLowerCase() === 'w') && running && !paused) jumpQueued = true;
@@ -327,6 +371,16 @@ window.addEventListener('keydown', e => {
     const gun = currentGun();
     const ammo = ammoState[gun.id];
     if (ammo && !ammo.reloading && ammo.mag < gun.magSize) { ammo.reloading = true; ammo.reloadTimer = gun.reloadTime; }
+  }
+  if (e.key.toLowerCase() === 'j' && !e.repeat && running && !paused) {
+    if (player.medkits > 0 && player.medkitCooldown <= 0 && player.health < player.maxHealth) {
+      player.medkits--;
+      player.medkitCooldown = 90;
+      const healed = Math.min(35, player.maxHealth - player.health);
+      player.health += healed;
+      spawnParticles(player.x, player.y - player.h * 0.5, '#2ecc71');
+      popups = [{ text:'Healed! +' + Math.round(healed), life:40, maxLife:40, size:36, color:'#2ecc71' }];
+    }
   }
 });
 window.addEventListener('keyup', e => {
@@ -355,7 +409,7 @@ canvas.addEventListener('wheel', e => {
 function worldToScreen(wx, wy) {
   const cx = canvas.width / 2;
   const groundScreenY = canvas.height * 0.75;
-  return { x: cx + (wx - player.x) * zoom, y: groundScreenY + (wy - player.y) * zoom };
+  return { x: cx + (wx - cameraX) * zoom, y: groundScreenY + (wy - GROUND_Y) * zoom };
 }
 function rectsOverlap(a, b) { return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top; }
 function shade(hex, amt) {
@@ -481,6 +535,7 @@ function startLevel(n) {
   player.health = player.maxHealth;
   player.speed = 5 + profile.upgrades.boots * 0.6;
   player.shieldMeter = 100; player.shieldActive = false;
+  player.medkits = 1 + profile.upgrades.medkit; player.medkitCooldown = 0;
   killStreak = 0; killStreakTimer = 0; popups = [];
 
   bullets = []; enemies = []; particles = []; enemyProjectiles = []; traps = [];
@@ -523,7 +578,9 @@ function gameOver() {
 function update() {
   if (!running) return;
   frameCount++;
+  cameraX = player.x;
   if (player.invuln > 0) player.invuln--;
+  if (player.medkitCooldown > 0) player.medkitCooldown--;
   damageFlash *= 0.9; if (damageFlash < 0.02) damageFlash = 0;
   screenShake *= 0.85; if (screenShake < 0.5) screenShake = 0;
 
@@ -671,7 +728,7 @@ function update() {
       screenShake = Math.max(screenShake, 3);
       killStreak++; killStreakTimer = 90;
       const word = KILL_WORDS[Math.min(killStreak - 1, KILL_WORDS.length - 1)];
-      popups.push({ x:en.x, y:en.y - en.h - 10, text:word, life:50, maxLife:50, size:16 + Math.min(killStreak, 6) * 2, color: killStreak >= 5 ? '#f1c40f' : '#fff' });
+      popups = [{ text:word, life:50, maxLife:50, size:40 + Math.min(killStreak, 6) * 5, color: killStreak >= 5 ? '#f1c40f' : '#fff' }];
     }
   });
   enemies = enemies.filter(en => en.health > 0);
@@ -681,13 +738,13 @@ function update() {
     explode(bossRef.x, bossRef.y - bossRef.h / 2, 140, 0, '#f1c40f');
     runScore += 200; coinsThisRun += 50;
     document.getElementById('bossBarWrap').style.display = 'none';
-    popups.push({ x:bossRef.x, y:bossRef.y - bossRef.h - 20, text:'BOSS DOWN!', life:70, maxLife:70, size:30, color:'#f1c40f' });
+    popups = [{ text:'BOSS DOWN!', life:70, maxLife:70, size:56, color:'#f1c40f' }];
     bossRef = null;
   }
 
   particles.forEach(p => { p.x += p.vx; p.y += p.vy; p.life--; });
   particles = particles.filter(p => p.life > 0);
-  popups.forEach(p => { p.y -= 0.6; p.life--; });
+  popups.forEach(p => { p.life--; });
   popups = popups.filter(p => p.life > 0);
 
   if (currentLevelConfig.isBoss) {
@@ -701,6 +758,9 @@ function update() {
   document.getElementById('healthBarFill').style.width = (player.health / player.maxHealth * 100) + '%';
   document.getElementById('shieldBarFill').style.width = player.shieldMeter + '%';
   document.getElementById('shieldPct').textContent = Math.round(player.shieldMeter) + '%';
+  const medkitEl = document.getElementById('medkitDisplay');
+  medkitEl.textContent = 'Medkits: ' + player.medkits + (player.medkitCooldown > 0 ? ' (ready in ' + Math.ceil(player.medkitCooldown / 60) + 's)' : ' [J to heal]');
+  medkitEl.style.color = player.medkits > 0 ? '#2ecc71' : '#888';
   document.getElementById('enemyCount').textContent = 'Enemies: ' + (enemies.length + enemiesLeftInWave) + (currentLevelConfig.isBoss ? ' (BOSS)' : '');
   document.getElementById('coinsHud').textContent = (profile.coins + coinsThisRun);
   document.getElementById('scoreHud').textContent = runScore;
@@ -726,13 +786,13 @@ function update() {
 // ---------- Background ----------
 function tiledX(baseWorldX, parallaxFactor, spacingWorld) {
   const spacingScreen = spacingWorld * zoom;
-  const camScreen = player.x * parallaxFactor * zoom;
+  const camScreen = cameraX * parallaxFactor * zoom;
   return ((baseWorldX * zoom - camScreen) % spacingScreen + spacingScreen) % spacingScreen;
 }
 function drawRidgeLayer(baseYPct, peakHeight, spacing, parallaxFactor, color) {
   const baseY = canvas.height * baseYPct;
   const spacingScreen = spacing * zoom;
-  const camScreen = player.x * parallaxFactor * zoom;
+  const camScreen = cameraX * parallaxFactor * zoom;
   let start = -spacingScreen - (camScreen % spacingScreen);
   ctx.fillStyle = color;
   ctx.beginPath();
@@ -778,7 +838,7 @@ function drawBackground() {
   drawRidgeLayer(0.78, 90, 220, 0.32, biome.ridge[1]);
 
   const cloudSpacing = 380;
-  const camScreen = player.x * 0.4 * zoom;
+  const camScreen = cameraX * 0.4 * zoom;
   let cStart = -cloudSpacing * zoom - (camScreen % (cloudSpacing * zoom));
   for (let x = cStart; x < canvas.width + cloudSpacing * zoom; x += cloudSpacing * zoom) drawCloud(x + cloudSpacing*zoom*0.5, groundScreenY*0.22, zoom);
 }
@@ -895,7 +955,7 @@ function draw() {
   ctx.strokeStyle = 'rgba(255,255,255,0.08)';
   ctx.lineWidth = 2;
   const stripe = 60 * zoom;
-  const offsetX = ((-player.x * zoom) % stripe + stripe) % stripe;
+  const offsetX = ((-cameraX * zoom) % stripe + stripe) % stripe;
   for (let x = offsetX; x < canvas.width; x += stripe) { ctx.beginPath(); ctx.moveTo(x, groundScreenY); ctx.lineTo(x, canvas.height); ctx.stroke(); }
   ctx.strokeStyle = '#e8956a';
   ctx.lineWidth = 3;
@@ -947,7 +1007,7 @@ function draw() {
     ctx.globalAlpha = 1;
   });
 
-  const ps = { x: canvas.width/2, y: groundScreenY };
+  const ps = worldToScreen(player.x, player.y);
   const playerLegSwing = !player.onGround ? 0.35 : (Math.abs(player.vx) > 0.3 ? Math.sin(frameCount * 0.35) * (Math.abs(player.vx) / player.speed) : 0);
   drawCharacter(ps, player.w*zoom, player.h*zoom, player.facing, '#3498db', '#1f5f8b', { legSwing: playerLegSwing, gunColor: currentGun().color, muzzleFlash: muzzleFlashTimer > 0 || beamFiring, gunLen: player.w * (currentGun().kind === 'beam' ? 0.7 : 0.95) });
 
@@ -962,13 +1022,20 @@ function draw() {
   }
 
   popups.forEach(p => {
-    const s = worldToScreen(p.x, p.y);
-    ctx.globalAlpha = Math.max(0, Math.min(1, p.life / (p.maxLife * 0.4)));
-    ctx.fillStyle = p.color;
-    ctx.font = 'bold ' + Math.round(p.size * zoom) + 'px Segoe UI, Arial';
+    const age = p.maxLife - p.life;
+    const scale = age < 8 ? 0.7 + (age / 8) * 0.3 : 1;
+    ctx.globalAlpha = Math.max(0, Math.min(1, p.life / (p.maxLife * 0.35)));
+    ctx.font = 'bold ' + Math.round(p.size * scale) + 'px Segoe UI, Arial';
     ctx.textAlign = 'center';
-    ctx.fillText(p.text, s.x, s.y);
+    ctx.textBaseline = 'middle';
+    const px = canvas.width / 2, py = canvas.height * 0.32;
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = 'rgba(0,0,0,0.65)';
+    ctx.strokeText(p.text, px, py);
+    ctx.fillStyle = p.color;
+    ctx.fillText(p.text, px, py);
     ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
     ctx.globalAlpha = 1;
   });
 
@@ -1005,6 +1072,176 @@ function loop() {
   draw();
   if (running) requestAnimationFrame(loop);
 }
+
+// ---------- Versus 1v1 Online ----------
+let peer = null, netConn = null, isHost = false;
+let versusRunning = false;
+const VERSUS_HALF = 380;
+let localV = null, remoteV = null;
+let versusBullets = [];
+let opponentName = 'Opponent';
+let lastNetSend = 0;
+
+function vp(x, facing) { return { x, y:GROUND_Y, vx:0, vy:0, onGround:true, facing, health:100, maxHealth:100, w:28, h:46 }; }
+function netSend(obj) { if (netConn && netConn.open) { try { netConn.send(obj); } catch (e) {} } }
+function showVersusStatus(msg) { const el = document.getElementById('versusStatus'); if (el) el.textContent = msg; }
+
+function teardownPeer() {
+  if (netConn) { try { netConn.close(); } catch (e) {} netConn = null; }
+  if (peer) { try { peer.destroy(); } catch (e) {} peer = null; }
+  versusRunning = false;
+}
+
+function wireConnection() {
+  netConn.on('open', () => {
+    showVersusStatus('Connected! Starting match...');
+    netSend({ type:'hello', name: profile.name });
+  });
+  netConn.on('data', handleNetMessage);
+  netConn.on('close', () => {
+    if (versusRunning) { versusRunning = false; document.getElementById('versusHud').style.display = 'none'; showMainMenu(); }
+  });
+}
+
+function handleNetMessage(data) {
+  if (data.type === 'hello') {
+    opponentName = data.name || 'Opponent';
+    if (!versusRunning) startVersusMatch();
+  } else if (data.type === 'state') {
+    if (!remoteV) return;
+    remoteV.x = data.x; remoteV.y = data.y; remoteV.vx = data.vx; remoteV.facing = data.facing; remoteV.health = data.health; remoteV.onGround = data.onGround;
+  } else if (data.type === 'shoot') {
+    versusBullets.push({ x:data.x, y:data.y, vx: data.facing * 17, vy:0, life:55, damage:18, color:'#e74c3c', owner:'remote' });
+  } else if (data.type === 'rematch') {
+    resetVersusRound(false);
+  }
+}
+
+document.getElementById('versusBtn').onclick = () => { showVersusStatus(''); showScreen('versusMenuScreen'); };
+document.getElementById('versusBackBtn').onclick = () => { teardownPeer(); showMainMenu(); };
+
+document.getElementById('versusCreateBtn').onclick = () => {
+  teardownPeer();
+  showVersusStatus('Creating room...');
+  peer = new Peer();
+  peer.on('open', id => showVersusStatus('Your code: ' + id + ' — send this to your friend and wait...'));
+  peer.on('connection', conn => { isHost = true; netConn = conn; wireConnection(); });
+  peer.on('error', err => showVersusStatus('Connection error: ' + err.type));
+};
+
+document.getElementById('versusJoinBtn').onclick = () => {
+  const code = document.getElementById('versusCodeInput').value.trim();
+  if (!code) { showVersusStatus('Type a code first!'); return; }
+  teardownPeer();
+  showVersusStatus('Connecting...');
+  peer = new Peer();
+  peer.on('open', () => { isHost = false; netConn = peer.connect(code, { reliable:true }); wireConnection(); });
+  peer.on('error', err => showVersusStatus('Connection error: ' + err.type));
+};
+
+function resetVersusRound(sendIt) {
+  localV = vp(isHost ? -VERSUS_HALF : VERSUS_HALF, isHost ? 1 : -1);
+  remoteV = vp(isHost ? VERSUS_HALF : -VERSUS_HALF, isHost ? -1 : 1);
+  versusBullets = [];
+  showScreen(null);
+  document.getElementById('versusHud').style.display = 'block';
+  if (sendIt) netSend({ type:'rematch' });
+}
+
+function startVersusMatch() {
+  document.getElementById('versusYouName').textContent = profile.name;
+  document.getElementById('versusOppName').textContent = opponentName;
+  resetVersusRound(false);
+  zoom = NORMAL_ZOOM;
+  versusRunning = true;
+  versusLoop();
+}
+
+function versusUpdate() {
+  if (!versusRunning) return;
+  let dx = 0;
+  if (keys['a']) dx -= 1;
+  if (keys['d']) dx += 1;
+  const targetVx = dx * 5;
+  localV.vx += (targetVx - localV.vx) * 0.35;
+  if (Math.abs(localV.vx) < 0.05) localV.vx = 0;
+  localV.x += localV.vx;
+  localV.x = Math.max(-VERSUS_HALF - 150, Math.min(VERSUS_HALF + 150, localV.x));
+  if (dx !== 0) localV.facing = dx > 0 ? 1 : -1;
+
+  if (jumpQueued && localV.onGround) { localV.vy = JUMP_FORCE; localV.onGround = false; }
+  jumpQueued = false;
+  localV.vy += GRAVITY; localV.y += localV.vy;
+  if (localV.y >= GROUND_Y) { localV.y = GROUND_Y; localV.vy = 0; localV.onGround = true; }
+
+  if (fireCooldown > 0) fireCooldown--;
+  if (mouse.down && fireCooldown <= 0) {
+    fireCooldown = 12;
+    const bx = localV.x + localV.facing * 20, by = localV.y - 28;
+    versusBullets.push({ x:bx, y:by, vx: localV.facing * 17, vy:0, life:55, damage:18, color:'#f1c40f', owner:'local' });
+    netSend({ type:'shoot', x:bx, y:by, facing: localV.facing });
+  }
+
+  versusBullets.forEach(b => {
+    b.x += b.vx; b.y += b.vy; b.life--;
+    if (b.owner === 'remote' && localV.health > 0) {
+      const ddx = Math.abs(b.x - localV.x), ddy = Math.abs(b.y - (localV.y - localV.h * 0.5));
+      if (ddx < localV.w / 2 + 8 && ddy < localV.h / 2 + 8) { localV.health -= b.damage; b.life = 0; }
+    }
+  });
+  versusBullets = versusBullets.filter(b => b.life > 0);
+
+  cameraX = (localV.x + remoteV.x) / 2;
+
+  const now = performance.now();
+  if (now - lastNetSend > 45) {
+    lastNetSend = now;
+    netSend({ type:'state', x: localV.x, y: localV.y, vx: localV.vx, facing: localV.facing, health: Math.max(0, localV.health), onGround: localV.onGround });
+  }
+
+  document.getElementById('versusHealthBarFill').style.width = Math.max(0, localV.health) + '%';
+  document.getElementById('versusOppHealthBarFill').style.width = Math.max(0, remoteV.health) + '%';
+
+  if (localV.health <= 0 || remoteV.health <= 0) {
+    versusRunning = false;
+    const won = remoteV.health <= 0 && localV.health > 0;
+    document.getElementById('versusResultTitle').textContent = won ? 'You Win!' : 'You Lose!';
+    document.getElementById('versusResultStats').textContent = won ? ('GG! You defeated ' + opponentName + '.') : (opponentName + ' got the better of you this time.');
+    showScreen('versusEndScreen');
+  }
+}
+
+function versusDraw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawBackground();
+  const groundScreenY = canvas.height * 0.75;
+  const groundGrad = ctx.createLinearGradient(0, groundScreenY, 0, canvas.height);
+  groundGrad.addColorStop(0, '#4a3b2a'); groundGrad.addColorStop(1, '#2c2318');
+  ctx.fillStyle = groundGrad;
+  ctx.fillRect(0, groundScreenY, canvas.width, canvas.height - groundScreenY);
+  ctx.strokeStyle = '#e8956a'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(0, groundScreenY); ctx.lineTo(canvas.width, groundScreenY); ctx.stroke();
+
+  versusBullets.forEach(b => {
+    const s = worldToScreen(b.x, b.y);
+    ctx.fillStyle = b.color;
+    ctx.fillRect(s.x - 5 * zoom, s.y - 2 * zoom, 10 * zoom, 4 * zoom);
+  });
+
+  const sLocal = worldToScreen(localV.x, localV.y);
+  drawCharacter(sLocal, localV.w * zoom, localV.h * zoom, localV.facing, '#3498db', '#1f5f8b', { gunColor:'#f1c40f' });
+  const sRemote = worldToScreen(remoteV.x, remoteV.y);
+  drawCharacter(sRemote, remoteV.w * zoom, remoteV.h * zoom, remoteV.facing, '#e74c3c', '#7a2d1f', { gunColor:'#f1c40f' });
+}
+
+function versusLoop() {
+  versusUpdate();
+  versusDraw();
+  if (versusRunning) requestAnimationFrame(versusLoop);
+}
+
+document.getElementById('versusRematchBtn').onclick = () => { resetVersusRound(true); versusRunning = true; versusLoop(); };
+document.getElementById('versusEndMenuBtn').onclick = () => { teardownPeer(); document.getElementById('versusHud').style.display = 'none'; showMainMenu(); };
 
 // ---------- Wiring ----------
 document.getElementById('createProfileBtn').onclick = () => {
