@@ -37,6 +37,8 @@
   #hud { position:absolute; top:10px; left:10px; color:#fff; font-size:14px; text-shadow:1px 1px 2px #000; z-index:5; }
   #healthBarBg { width:220px; height:18px; background:#333; border:2px solid #fff; margin-top:4px; border-radius:3px; overflow:hidden; }
   #healthBarFill { height:100%; background:linear-gradient(90deg,#e74c3c,#ff6b5b); width:100%; transition:width 0.15s; }
+  #shieldBarBg { width:220px; height:12px; background:#333; border:2px solid #00e5ff; margin-top:3px; border-radius:3px; overflow:hidden; }
+  #shieldBarFill { height:100%; background:linear-gradient(90deg,#0097a7,#00e5ff); width:100%; transition:width 0.1s; }
   #bossBarWrap { position:absolute; top:10px; left:50%; transform:translateX(-50%); width:400px; display:none; z-index:5; text-align:center; color:#fff; text-shadow:1px 1px 2px #000; }
   #bossBarBg { width:100%; height:16px; background:#333; border:2px solid #f1c40f; border-radius:3px; overflow:hidden; }
   #bossBarFill { height:100%; background:#f1c40f; width:100%; transition:width 0.15s; }
@@ -111,6 +113,8 @@
   <div>Health</div>
   <div id="healthBarBg"><div id="healthBarFill"></div></div>
   <div id="enemyCount">Enemies: 0</div>
+  <div style="margin-top:6px;">Shield <span id="shieldPct">100%</span> [Hold K]</div>
+  <div id="shieldBarBg"><div id="shieldBarFill"></div></div>
   <div id="ammoDisplay" style="margin-top:6px; font-weight:bold;">Ammo: 12/12</div>
   <div id="weaponBar" style="margin-top:8px; display:flex; gap:6px; flex-wrap:wrap; max-width:320px;"></div>
 </div>
@@ -210,14 +214,17 @@ let frameCount = 0;
 let runScore = 0, coinsThisRun = 0;
 let enemiesLeftInWave = 0, squadQueued = false;
 let bossRef = null;
-let bullets = [], enemies = [], particles = [], enemyProjectiles = [], traps = [];
+let bullets = [], enemies = [], particles = [], enemyProjectiles = [], traps = [], popups = [];
 let damageFlash = 0, screenShake = 0;
 let beamFiring = false;
 let coyoteTimer = 0, jumpBufferTimer = 0, jumpQueued = false;
 let ammoState = {};
 let muzzleFlashTimer = 0;
+let killStreak = 0, killStreakTimer = 0;
+const KILL_WORDS = ['Nice!', 'Good!', 'Great!', 'Excellent!', 'Superb!', 'Amazing!', 'Unstoppable!', 'Godlike!'];
 
-const player = { x:0, y:GROUND_Y, w:28, h:46, vx:0, vy:0, speed:5, onGround:true, health:100, maxHealth:100, facing:1, invuln:0 };
+const player = { x:0, y:GROUND_Y, w:28, h:46, vx:0, vy:0, speed:5, onGround:true, health:100, maxHealth:100, facing:1, invuln:0, shieldMeter:100, shieldActive:false };
+function damagePlayer(amount) { if (!player.shieldActive) player.health -= amount; }
 const keys = {};
 let mouse = { x:0, y:0, down:false };
 let zoom = 1;
@@ -306,6 +313,7 @@ function switchGun(id) { if (profile.ownedWeapons.includes(id)) { currentGunId =
 
 // ---------- Input ----------
 window.addEventListener('keydown', e => {
+  if (e.key === ' ' || (running && ['a', 'd', 'w', 'k', 'r'].includes(e.key.toLowerCase()))) e.preventDefault();
   keys[e.key.toLowerCase()] = true;
   if (e.key === 'Shift') zoom = ZOOM_LEVEL;
   if ((e.key === ' ' || e.key.toLowerCase() === 'w') && running && !paused) jumpQueued = true;
@@ -460,6 +468,7 @@ function spawnParticles(x, y, color) {
 
 // ---------- Level flow ----------
 function startLevel(n) {
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
   currentLevelConfig = getLevelConfig(n);
   showScreen(null);
   document.getElementById('hud').style.display = 'block';
@@ -471,6 +480,8 @@ function startLevel(n) {
   player.maxHealth = 100 + profile.upgrades.vest * 15;
   player.health = player.maxHealth;
   player.speed = 5 + profile.upgrades.boots * 0.6;
+  player.shieldMeter = 100; player.shieldActive = false;
+  killStreak = 0; killStreakTimer = 0; popups = [];
 
   bullets = []; enemies = []; particles = []; enemyProjectiles = []; traps = [];
   bossRef = null; coinsThisRun = 0; runScore = 0; frameCount = 0; screenShake = 0; damageFlash = 0;
@@ -515,6 +526,16 @@ function update() {
   if (player.invuln > 0) player.invuln--;
   damageFlash *= 0.9; if (damageFlash < 0.02) damageFlash = 0;
   screenShake *= 0.85; if (screenShake < 0.5) screenShake = 0;
+
+  if (keys['k'] && player.shieldMeter > 0) {
+    player.shieldActive = true;
+    player.shieldMeter -= 1.2;
+    if (player.shieldMeter < 0) player.shieldMeter = 0;
+  } else {
+    player.shieldActive = false;
+    player.shieldMeter += 0.4;
+    if (player.shieldMeter > 100) player.shieldMeter = 100;
+  }
 
   let dx = 0;
   if (keys['a']) dx -= 1;
@@ -570,7 +591,7 @@ function update() {
     }
     const pRect = { left:player.x - player.w / 2, right:player.x + player.w / 2, top:player.y - player.h, bottom:player.y };
     const eRect = { left:en.x - en.w / 2, right:en.x + en.w / 2, top:en.y - en.h, bottom:en.y };
-    if (rectsOverlap(pRect, eRect)) player.health -= en.damage * 0.05;
+    if (rectsOverlap(pRect, eRect)) damagePlayer(en.damage * 0.05);
   });
 
   if (bossRef && !bossRef.dead) {
@@ -582,7 +603,7 @@ function update() {
     if (dist <= 90) {
       const pRect = { left:player.x - player.w / 2, right:player.x + player.w / 2, top:player.y - player.h, bottom:player.y };
       const bRect = { left:bossRef.x - bossRef.w / 2, right:bossRef.x + bossRef.w / 2, top:bossRef.y - bossRef.h, bottom:bossRef.y };
-      if (rectsOverlap(pRect, bRect)) player.health -= bossRef.damage * 0.06;
+      if (rectsOverlap(pRect, bRect)) damagePlayer(bossRef.damage * 0.06);
     } else if (bossRef.attackCooldown <= 0) {
       for (let i = -1; i <= 1; i++) enemyProjectiles.push({ x:bossRef.x, y:bossRef.y - bossRef.h * 0.6, vx:dir * 8, vy:i * 2.2, life:110, damage:bossRef.damage * 0.6, color:'#ff5533', size:8 });
       bossRef.attackCooldown = 85;
@@ -620,7 +641,7 @@ function update() {
     if (p.life <= 0) return;
     const ddx = Math.abs(p.x - player.x), ddy = Math.abs(p.y - (player.y - player.h / 2));
     if (ddx < player.w / 2 + 6 && ddy < player.h / 2 + 10 && player.invuln <= 0) {
-      player.health -= p.damage; player.invuln = 20; damageFlash = 0.4; p.life = 0;
+      damagePlayer(p.damage); player.invuln = 20; damageFlash = player.shieldActive ? 0 : 0.4; p.life = 0;
     }
   });
   enemyProjectiles = enemyProjectiles.filter(p => p.life > 0);
@@ -628,17 +649,19 @@ function update() {
   traps.forEach(t => {
     if (t.type === 'spike') {
       if (Math.abs(player.x - t.x) < t.w / 2 + player.w / 2 && player.invuln <= 0) {
-        player.health -= 14; player.invuln = 30; damageFlash = 0.4;
+        damagePlayer(14); player.invuln = 30; damageFlash = player.shieldActive ? 0 : 0.4;
         player.x += player.x < t.x ? -10 : 10;
       }
     } else if (t.type === 'laser') {
       const cyc = (frameCount + t.phase) % (t.onTime + t.offTime);
       t.active = cyc < t.onTime;
       if (t.active && Math.abs(player.x - t.x) < t.w / 2 + player.w / 2 && player.invuln <= 0) {
-        player.health -= 8; player.invuln = 15; damageFlash = 0.3;
+        damagePlayer(8); player.invuln = 15; damageFlash = player.shieldActive ? 0 : 0.3;
       }
     }
   });
+
+  if (killStreakTimer > 0) { killStreakTimer--; if (killStreakTimer === 0) killStreak = 0; }
 
   enemies.forEach(en => {
     if (en.health <= 0 && !en.dead) {
@@ -646,6 +669,9 @@ function update() {
       spawnParticles(en.x, en.y - en.h / 2, '#e74c3c');
       runScore += 10; coinsThisRun += 2;
       screenShake = Math.max(screenShake, 3);
+      killStreak++; killStreakTimer = 90;
+      const word = KILL_WORDS[Math.min(killStreak - 1, KILL_WORDS.length - 1)];
+      popups.push({ x:en.x, y:en.y - en.h - 10, text:word, life:50, maxLife:50, size:16 + Math.min(killStreak, 6) * 2, color: killStreak >= 5 ? '#f1c40f' : '#fff' });
     }
   });
   enemies = enemies.filter(en => en.health > 0);
@@ -655,11 +681,14 @@ function update() {
     explode(bossRef.x, bossRef.y - bossRef.h / 2, 140, 0, '#f1c40f');
     runScore += 200; coinsThisRun += 50;
     document.getElementById('bossBarWrap').style.display = 'none';
+    popups.push({ x:bossRef.x, y:bossRef.y - bossRef.h - 20, text:'BOSS DOWN!', life:70, maxLife:70, size:30, color:'#f1c40f' });
     bossRef = null;
   }
 
   particles.forEach(p => { p.x += p.vx; p.y += p.vy; p.life--; });
   particles = particles.filter(p => p.life > 0);
+  popups.forEach(p => { p.y -= 0.6; p.life--; });
+  popups = popups.filter(p => p.life > 0);
 
   if (currentLevelConfig.isBoss) {
     if (!bossRef && running) onLevelComplete();
@@ -670,6 +699,8 @@ function update() {
 
   if (player.health < 0) player.health = 0;
   document.getElementById('healthBarFill').style.width = (player.health / player.maxHealth * 100) + '%';
+  document.getElementById('shieldBarFill').style.width = player.shieldMeter + '%';
+  document.getElementById('shieldPct').textContent = Math.round(player.shieldMeter) + '%';
   document.getElementById('enemyCount').textContent = 'Enemies: ' + (enemies.length + enemiesLeftInWave) + (currentLevelConfig.isBoss ? ' (BOSS)' : '');
   document.getElementById('coinsHud').textContent = (profile.coins + coinsThisRun);
   document.getElementById('scoreHud').textContent = runScore;
@@ -919,6 +950,27 @@ function draw() {
   const ps = { x: canvas.width/2, y: groundScreenY };
   const playerLegSwing = !player.onGround ? 0.35 : (Math.abs(player.vx) > 0.3 ? Math.sin(frameCount * 0.35) * (Math.abs(player.vx) / player.speed) : 0);
   drawCharacter(ps, player.w*zoom, player.h*zoom, player.facing, '#3498db', '#1f5f8b', { legSwing: playerLegSwing, gunColor: currentGun().color, muzzleFlash: muzzleFlashTimer > 0 || beamFiring, gunLen: player.w * (currentGun().kind === 'beam' ? 0.7 : 0.95) });
+
+  if (player.shieldActive) {
+    ctx.strokeStyle = 'rgba(0,229,255,0.9)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(ps.x, ps.y - player.h*zoom*0.55, player.h*zoom*0.65, 0, Math.PI*2);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(0,229,255,0.15)';
+    ctx.fill();
+  }
+
+  popups.forEach(p => {
+    const s = worldToScreen(p.x, p.y);
+    ctx.globalAlpha = Math.max(0, Math.min(1, p.life / (p.maxLife * 0.4)));
+    ctx.fillStyle = p.color;
+    ctx.font = 'bold ' + Math.round(p.size * zoom) + 'px Segoe UI, Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(p.text, s.x, s.y);
+    ctx.textAlign = 'left';
+    ctx.globalAlpha = 1;
+  });
 
   if (beamFiring) {
     const gun = currentGun();
