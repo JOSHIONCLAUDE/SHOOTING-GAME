@@ -71,22 +71,23 @@
 </div>
 
 <div id="versusMenuScreen" class="overlay" style="display:none">
-  <h1>1v1 Online Duel</h1>
-  <p style="max-width:420px">Play live against a friend on another computer. One of you creates a match and shares the code; the other joins with it.</p>
-  <button class="btn" id="versusCreateBtn">Create Match</button>
+  <h1>Online Battle Arena</h1>
+  <p style="max-width:420px">Play live against friends on other computers. Anyone can join your room with its code — no player limit!</p>
+  <button class="btn" id="versusCreateFfaBtn">Create Free-for-All Room</button>
+  <button class="btn" id="versusCreateTeamBtn">Create Team Battle Room</button>
   <div style="margin:14px 0;">— or —</div>
-  <input type="text" id="versusCodeInput" maxlength="14" placeholder="Enter friend's code">
+  <input type="text" id="versusCodeInput" maxlength="14" placeholder="Enter room code">
   <br>
-  <button class="btn" id="versusJoinBtn">Join Match</button>
+  <button class="btn" id="versusJoinBtn">Join Room</button>
   <p id="versusStatus" style="min-height:24px;color:#f1c40f;max-width:420px;"></p>
   <button class="btn secondary" id="versusBackBtn">Back</button>
 </div>
 
-<div id="versusEndScreen" class="overlay" style="display:none">
-  <h1 id="versusResultTitle">You Win!</h1>
-  <p id="versusResultStats"></p>
-  <button class="btn" id="versusRematchBtn">Rematch</button>
-  <button class="btn secondary" id="versusEndMenuBtn">Menu</button>
+<div id="versusTeamPickScreen" class="overlay" style="display:none">
+  <h1>Choose Your Team</h1>
+  <p id="versusTeamCounts" style="max-width:420px"></p>
+  <button class="btn" id="versusPickRedBtn" style="background:#c0392b">Join Red Team</button>
+  <button class="btn" id="versusPickBlueBtn" style="background:#2980b9">Join Blue Team</button>
 </div>
 
 <div id="levelSelectScreen" class="overlay" style="display:none">
@@ -146,18 +147,13 @@
 <div id="bossBarWrap"><div id="bossName">BOSS</div><div id="bossBarBg"><div id="bossBarFill"></div></div></div>
 <div id="pauseHint" style="display:none">ESC to pause</div>
 
-<div id="versusHud" style="display:none; position:absolute; top:10px; left:10px; right:10px; color:#fff; text-shadow:1px 1px 2px #000; z-index:5;">
-  <div style="display:flex; justify-content:space-between;">
-    <div style="width:45%;">
-      <div id="versusYouName">You</div>
-      <div style="width:100%; height:18px; background:#333; border:2px solid #3498db; border-radius:3px; overflow:hidden;"><div id="versusHealthBarFill" style="height:100%; background:#3498db; width:100%;"></div></div>
-    </div>
-    <div style="width:45%; text-align:right;">
-      <div id="versusOppName">Opponent</div>
-      <div style="width:100%; height:18px; background:#333; border:2px solid #e74c3c; border-radius:3px; overflow:hidden;"><div id="versusOppHealthBarFill" style="height:100%; background:#e74c3c; width:100%; margin-left:auto;"></div></div>
-    </div>
-  </div>
+<div id="versusHud" style="display:none; position:absolute; top:10px; left:10px; color:#fff; text-shadow:1px 1px 2px #000; z-index:5;">
+  <div>Health</div>
+  <div style="width:220px; height:18px; background:#333; border:2px solid #3498db; border-radius:3px; overflow:hidden;"><div id="versusHealthBarFill" style="height:100%; background:#3498db; width:100%;"></div></div>
+  <div id="versusTeamScore" style="margin-top:6px; font-weight:bold;"></div>
 </div>
+<div id="versusLeaderboard" style="display:none; position:absolute; top:10px; right:10px; color:#fff; text-shadow:1px 1px 2px #000; z-index:5; text-align:right; font-size:13px; max-width:220px;"></div>
+<button id="versusLeaveBtn" style="display:none; position:absolute; bottom:10px; right:10px; z-index:5; padding:8px 16px; background:#7f1d1d; color:#fff; border:none; border-radius:6px; cursor:pointer;">Leave Match</button>
 
 <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.2/dist/peerjs.min.js"></script>
 <script>
@@ -280,7 +276,7 @@ const stars = Array.from({ length: 60 }, () => ({
 
 // ---------- Screen management ----------
 function showScreen(id) {
-  ['profileScreen','mainMenu','levelSelectScreen','armoryScreen','pauseOverlay','levelCompleteScreen','gameOverScreen','versusMenuScreen','versusEndScreen'].forEach(s => {
+  ['profileScreen','mainMenu','levelSelectScreen','armoryScreen','pauseOverlay','levelCompleteScreen','gameOverScreen','versusMenuScreen','versusTeamPickScreen'].forEach(s => {
     document.getElementById(s).style.display = (s === id) ? 'flex' : 'none';
   });
 }
@@ -291,6 +287,8 @@ function showMainMenu() {
   document.getElementById('pauseHint').style.display = 'none';
   document.getElementById('bossBarWrap').style.display = 'none';
   document.getElementById('versusHud').style.display = 'none';
+  document.getElementById('versusLeaderboard').style.display = 'none';
+  document.getElementById('versusLeaveBtn').style.display = 'none';
   document.getElementById('welcomeText').textContent = 'Welcome, ' + profile.name + '!';
   document.getElementById('menuStats').textContent = '💰 ' + profile.coins + ' coins   •   Levels cleared: ' + profile.completedLevels.length + '/100';
   showScreen('mainMenu');
@@ -481,7 +479,7 @@ function spawnEnemy() {
   enemies.push({
     type, x:ex, y:GROUND_Y, w:def.w, h:def.h, speed:def.speedBase + def.speedPerLevel * cfg.level,
     health:hp, maxHealth:hp, damage:def.damage, color:def.color,
-    weaponName:gunDef.name, gunColor:gunDef.color, shootRange:def.shootRange,
+    weaponName:gunDef.name, weaponId:def.weapon, gunColor:gunDef.color, shootRange:def.shootRange,
     shootCooldown:Math.max(24, Math.round(gunDef.cooldown * 3)), shootTimer:Math.random() * 40,
     projSpeed:gunDef.bulletSpeed * 0.7, shootFlash:0
   });
@@ -744,8 +742,7 @@ function update() {
 
   particles.forEach(p => { p.x += p.vx; p.y += p.vy; p.life--; });
   particles = particles.filter(p => p.life > 0);
-  popups.forEach(p => { p.life--; });
-  popups = popups.filter(p => p.life > 0);
+  tickPopups();
 
   if (currentLevelConfig.isBoss) {
     if (!bossRef && running) onLevelComplete();
@@ -856,6 +853,48 @@ function fillRoundRect(x, y, w, h, r) {
   ctx.closePath();
   ctx.fill();
 }
+function drawWeaponShape(id, s, w, h, facing, gunColor, gunLen) {
+  const shoulderY = s.y - h * 0.82;
+  const handY = shoulderY + h * 0.14;
+  const barrelLen = gunLen - w * 0.1;
+  const backX = s.x + facing * (w * 0.1);
+  function px(t) { return backX + facing * barrelLen * t; }
+  function rectBetween(t0, t1, yTop, yH, color) {
+    ctx.fillStyle = color;
+    const x0 = Math.min(px(t0), px(t1)), x1 = Math.max(px(t0), px(t1));
+    ctx.fillRect(x0, yTop, x1 - x0, yH);
+  }
+  const dark = shade(gunColor, -55);
+  const light = shade(gunColor, 40);
+
+  if (id === 'mg') {
+    rectBetween(0, 1, handY - h * 0.035, h * 0.06, gunColor);
+    rectBetween(0.3, 0.42, handY, h * 0.17, dark);
+  } else if (id === 'shotgun') {
+    rectBetween(0, 1, handY - h * 0.05, h * 0.1, gunColor);
+    rectBetween(0.3, 0.55, handY - h * 0.055, h * 0.11, dark);
+  } else if (id === 'smg') {
+    rectBetween(0.15, 1, handY - h * 0.035, h * 0.06, gunColor);
+    rectBetween(0, 0.18, handY - h * 0.05, h * 0.1, dark);
+  } else if (id === 'sniper') {
+    rectBetween(0, 1, handY - h * 0.028, h * 0.05, gunColor);
+    rectBetween(0.28, 0.6, handY - h * 0.11, h * 0.05, dark);
+  } else if (id === 'rocket') {
+    rectBetween(0, 1, handY - h * 0.09, h * 0.18, gunColor);
+    ctx.fillStyle = dark;
+    ctx.beginPath(); ctx.arc(px(1), handY, h * 0.11, 0, Math.PI * 2); ctx.fill();
+  } else if (id === 'grenade') {
+    rectBetween(0.1, 0.9, handY - h * 0.08, h * 0.16, gunColor);
+    rectBetween(0, 0.15, handY - h * 0.06, h * 0.12, dark);
+  } else if (id === 'laser') {
+    rectBetween(0, 0.85, handY - h * 0.025, h * 0.045, gunColor);
+    ctx.fillStyle = light;
+    ctx.beginPath(); ctx.arc(px(1), handY, h * 0.055, 0, Math.PI * 2); ctx.fill();
+  } else {
+    rectBetween(0, 1, handY - h * 0.035, h * 0.07, gunColor);
+    rectBetween(0.55, 0.8, handY - h * 0.06, h * 0.03, dark);
+  }
+}
 function drawCharacter(s, w, h, facing, bodyColor, headColor, opts) {
   opts = opts || {};
   const legSwing = opts.legSwing || 0;
@@ -892,9 +931,7 @@ function drawCharacter(s, w, h, facing, bodyColor, headColor, opts) {
   ctx.lineTo(handX - facing * w * 0.15, handY);
   ctx.stroke();
 
-  ctx.fillStyle = gunColor;
-  const gx = facing > 0 ? s.x + w * 0.1 : handX;
-  ctx.fillRect(gx, handY - h * 0.035, gunLen - w * 0.1, h * 0.07);
+  drawWeaponShape(opts.weaponId, s, w, h, facing, gunColor, gunLen);
 
   if (muzzleFlash) {
     ctx.fillStyle = 'rgba(255,225,140,0.95)';
@@ -979,7 +1016,7 @@ function draw() {
     const s = worldToScreen(en.x, en.y);
     const facing = player.x > en.x ? 1 : -1;
     const legSwing = Math.sin((frameCount + en.x) * 0.25) * 0.4;
-    drawCharacter(s, en.w*zoom, en.h*zoom, facing, en.color, shade(en.color, -40), { legSwing, gunColor:en.gunColor, muzzleFlash: en.shootFlash > 0 });
+    drawCharacter(s, en.w*zoom, en.h*zoom, facing, en.color, shade(en.color, -40), { legSwing, gunColor:en.gunColor, weaponId:en.weaponId, muzzleFlash: en.shootFlash > 0 });
     const barW = 34*zoom;
     const hpPct = en.health / en.maxHealth;
     ctx.fillStyle = '#222'; ctx.fillRect(s.x - barW/2, s.y - en.h*zoom - 14*zoom, barW, 5*zoom);
@@ -990,7 +1027,7 @@ function draw() {
     const s = worldToScreen(bossRef.x, bossRef.y);
     const facing = player.x > bossRef.x ? 1 : -1;
     const legSwing = Math.sin(frameCount * 0.2) * 0.5;
-    drawCharacter(s, bossRef.w*zoom, bossRef.h*zoom, facing, '#8e44ad', '#5e2d7a', { legSwing, gunColor:'#ff5533', muzzleFlash: bossRef.shootFlash > 0, gunLen: bossRef.w * 1.1 });
+    drawCharacter(s, bossRef.w*zoom, bossRef.h*zoom, facing, '#8e44ad', '#5e2d7a', { legSwing, gunColor:'#ff5533', weaponId:'rocket', muzzleFlash: bossRef.shootFlash > 0, gunLen: bossRef.w * 1.1 });
     ctx.fillStyle = '#f1c40f';
     ctx.beginPath();
     ctx.moveTo(s.x - 14*zoom, s.y - bossRef.h*zoom - 6*zoom);
@@ -1009,7 +1046,7 @@ function draw() {
 
   const ps = worldToScreen(player.x, player.y);
   const playerLegSwing = !player.onGround ? 0.35 : (Math.abs(player.vx) > 0.3 ? Math.sin(frameCount * 0.35) * (Math.abs(player.vx) / player.speed) : 0);
-  drawCharacter(ps, player.w*zoom, player.h*zoom, player.facing, '#3498db', '#1f5f8b', { legSwing: playerLegSwing, gunColor: currentGun().color, muzzleFlash: muzzleFlashTimer > 0 || beamFiring, gunLen: player.w * (currentGun().kind === 'beam' ? 0.7 : 0.95) });
+  drawCharacter(ps, player.w*zoom, player.h*zoom, player.facing, '#3498db', '#1f5f8b', { legSwing: playerLegSwing, gunColor: currentGun().color, weaponId: currentGun().id, muzzleFlash: muzzleFlashTimer > 0 || beamFiring, gunLen: player.w * (currentGun().kind === 'beam' ? 0.7 : 0.95) });
 
   if (player.shieldActive) {
     ctx.strokeStyle = 'rgba(0,229,255,0.9)';
@@ -1021,23 +1058,7 @@ function draw() {
     ctx.fill();
   }
 
-  popups.forEach(p => {
-    const age = p.maxLife - p.life;
-    const scale = age < 8 ? 0.7 + (age / 8) * 0.3 : 1;
-    ctx.globalAlpha = Math.max(0, Math.min(1, p.life / (p.maxLife * 0.35)));
-    ctx.font = 'bold ' + Math.round(p.size * scale) + 'px Segoe UI, Arial';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    const px = canvas.width / 2, py = canvas.height * 0.32;
-    ctx.lineWidth = 6;
-    ctx.strokeStyle = 'rgba(0,0,0,0.65)';
-    ctx.strokeText(p.text, px, py);
-    ctx.fillStyle = p.color;
-    ctx.fillText(p.text, px, py);
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'alphabetic';
-    ctx.globalAlpha = 1;
-  });
+  drawPopups();
 
   if (beamFiring) {
     const gun = currentGun();
@@ -1067,147 +1088,270 @@ function draw() {
 }
 
 // ---------- Loop ----------
+function tickPopups() {
+  popups.forEach(p => { p.life--; });
+  popups = popups.filter(p => p.life > 0);
+}
+function drawPopups() {
+  popups.forEach(p => {
+    const age = p.maxLife - p.life;
+    const scale = age < 8 ? 0.7 + (age / 8) * 0.3 : 1;
+    ctx.globalAlpha = Math.max(0, Math.min(1, p.life / (p.maxLife * 0.35)));
+    ctx.font = 'bold ' + Math.round(p.size * scale) + 'px Segoe UI, Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const px = canvas.width / 2, py = canvas.height * 0.32;
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = 'rgba(0,0,0,0.65)';
+    ctx.strokeText(p.text, px, py);
+    ctx.fillStyle = p.color;
+    ctx.fillText(p.text, px, py);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.globalAlpha = 1;
+  });
+}
+
 function loop() {
   if (!paused) update();
   draw();
   if (running) requestAnimationFrame(loop);
 }
 
-// ---------- Versus 1v1 Online ----------
-let peer = null, netConn = null, isHost = false;
+// ---------- Versus Online Arena (FFA / Team, unlimited players via host relay) ----------
+let peer = null, myId = null, isHost = false;
+let hostConnections = {}; // host only: peerId -> DataConnection
+let hostConn = null; // joiner only: connection to host
+let versusMode = 'ffa'; // 'ffa' | 'team'
 let versusRunning = false;
-const VERSUS_HALF = 380;
-let localV = null, remoteV = null;
+let localV = null; // {x,y,vx,vy,onGround,facing,health,maxHealth,w,h,team,name,kills,dead,respawnTimer}
+let others = new Map(); // peerId -> same shape as localV
 let versusBullets = [];
-let opponentName = 'Opponent';
 let lastNetSend = 0;
+const SPAWN_RANGE = 900;
 
-function vp(x, facing) { return { x, y:GROUND_Y, vx:0, vy:0, onGround:true, facing, health:100, maxHealth:100, w:28, h:46 }; }
-function netSend(obj) { if (netConn && netConn.open) { try { netConn.send(obj); } catch (e) {} } }
+function vp(name, team) {
+  return { x:(Math.random()*2-1)*SPAWN_RANGE, y:GROUND_Y, vx:0, vy:0, onGround:true, facing: Math.random()<0.5?1:-1,
+    health:100, maxHealth:100, w:28, h:46, team, name, kills:0, dead:false, respawnTimer:0, lastHitBy:null };
+}
 function showVersusStatus(msg) { const el = document.getElementById('versusStatus'); if (el) el.textContent = msg; }
+function colorForId(id) {
+  let h = 0; for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  const palette = ['#e74c3c','#e67e22','#f1c40f','#2ecc71','#1abc9c','#9b59b6','#e84393','#00cec9'];
+  return palette[h % palette.length];
+}
+function colorFor(p, id) {
+  if (versusMode === 'team') return p.team === 'red' ? '#e74c3c' : '#2980b9';
+  return id === myId ? '#3498db' : colorForId(id);
+}
+
+function netBroadcast(data, exceptId) {
+  if (isHost) {
+    Object.entries(hostConnections).forEach(([id, c]) => { if (id !== exceptId && c.open) { try { c.send(data); } catch (e) {} } });
+  } else if (hostConn && hostConn.open) {
+    try { hostConn.send(data); } catch (e) {}
+  }
+}
 
 function teardownPeer() {
-  if (netConn) { try { netConn.close(); } catch (e) {} netConn = null; }
+  Object.values(hostConnections).forEach(c => { try { c.close(); } catch (e) {} });
+  hostConnections = {};
+  if (hostConn) { try { hostConn.close(); } catch (e) {} hostConn = null; }
   if (peer) { try { peer.destroy(); } catch (e) {} peer = null; }
+  others.clear();
   versusRunning = false;
 }
 
-function wireConnection() {
-  netConn.on('open', () => {
-    showVersusStatus('Connected! Starting match...');
-    netSend({ type:'hello', name: profile.name });
-  });
-  netConn.on('data', handleNetMessage);
-  netConn.on('close', () => {
-    if (versusRunning) { versusRunning = false; document.getElementById('versusHud').style.display = 'none'; showMainMenu(); }
-  });
+function sendRosterTo(targetId) {
+  if (!localV) return;
+  const roster = [{ id: myId, name: localV.name, team: localV.team, x: localV.x, health: localV.health, kills: localV.kills }];
+  others.forEach((op, oid) => { if (oid !== targetId) roster.push({ id: oid, name: op.name, team: op.team, x: op.x, health: op.health, kills: op.kills }); });
+  const conn = hostConnections[targetId];
+  if (conn) conn.send({ type:'roster', mode: versusMode, players: roster });
 }
 
-function handleNetMessage(data) {
+function processVersusMessage(data) {
+  const fromId = data.from;
   if (data.type === 'hello') {
-    opponentName = data.name || 'Opponent';
-    if (!versusRunning) startVersusMatch();
+    if (!others.has(fromId)) others.set(fromId, vp(data.name, data.team));
+    const p = others.get(fromId); p.name = data.name; p.team = data.team;
+    if (isHost && localV) sendRosterTo(fromId);
   } else if (data.type === 'state') {
-    if (!remoteV) return;
-    remoteV.x = data.x; remoteV.y = data.y; remoteV.vx = data.vx; remoteV.facing = data.facing; remoteV.health = data.health; remoteV.onGround = data.onGround;
+    const p = others.get(fromId); if (!p) return;
+    p.x = data.x; p.y = data.y; p.vx = data.vx; p.facing = data.facing; p.health = data.health; p.dead = data.dead; p.onGround = data.onGround;
   } else if (data.type === 'shoot') {
-    versusBullets.push({ x:data.x, y:data.y, vx: data.facing * 17, vy:0, life:55, damage:18, color:'#e74c3c', owner:'remote' });
-  } else if (data.type === 'rematch') {
-    resetVersusRound(false);
+    versusBullets.push({ x:data.x, y:data.y, vx: data.facing * 17, vy:0, life:55, damage:18, ownerId: fromId, ownerTeam: data.team });
+  } else if (data.type === 'kill') {
+    if (data.killer === myId) { localV.kills++; }
+    else { const p = others.get(data.killer); if (p) p.kills++; }
+    updateVersusHud();
+  } else if (data.type === 'leave') {
+    others.delete(data.id);
   }
+}
+
+function wireHostSide(conn) {
+  hostConnections[conn.peer] = conn;
+  conn.on('data', d => { netBroadcast(d, conn.peer); processVersusMessage(d); });
+  conn.on('close', () => {
+    delete hostConnections[conn.peer];
+    others.delete(conn.peer);
+    netBroadcast({ type:'leave', id: conn.peer });
+  });
 }
 
 document.getElementById('versusBtn').onclick = () => { showVersusStatus(''); showScreen('versusMenuScreen'); };
 document.getElementById('versusBackBtn').onclick = () => { teardownPeer(); showMainMenu(); };
 
-document.getElementById('versusCreateBtn').onclick = () => {
+function createRoom(mode) {
   teardownPeer();
+  versusMode = mode;
   showVersusStatus('Creating room...');
   peer = new Peer();
-  peer.on('open', id => showVersusStatus('Your code: ' + id + ' — send this to your friend and wait...'));
-  peer.on('connection', conn => { isHost = true; netConn = conn; wireConnection(); });
+  isHost = true;
+  peer.on('open', id => {
+    myId = id;
+    showVersusStatus('Room code: ' + id + ' — share this with friends. Waiting...');
+    if (mode === 'team') { document.getElementById('versusTeamCounts').textContent = 'You are creating the room — pick your team.'; showScreen('versusTeamPickScreen'); }
+    else { localV = vp(profile.name, null); beginVersusPlay(); }
+  });
+  peer.on('connection', conn => wireHostSide(conn));
   peer.on('error', err => showVersusStatus('Connection error: ' + err.type));
-};
+}
+document.getElementById('versusCreateFfaBtn').onclick = () => createRoom('ffa');
+document.getElementById('versusCreateTeamBtn').onclick = () => createRoom('team');
 
 document.getElementById('versusJoinBtn').onclick = () => {
   const code = document.getElementById('versusCodeInput').value.trim();
   if (!code) { showVersusStatus('Type a code first!'); return; }
   teardownPeer();
+  isHost = false;
   showVersusStatus('Connecting...');
   peer = new Peer();
-  peer.on('open', () => { isHost = false; netConn = peer.connect(code, { reliable:true }); wireConnection(); });
+  peer.on('open', id => {
+    myId = id;
+    hostConn = peer.connect(code, { reliable:true });
+    hostConn.on('open', () => {
+      showVersusStatus('Connected! Waiting for room info...');
+      hostConn.send({ type:'hello', from: myId, name: profile.name, team: null });
+    });
+    hostConn.on('data', d => {
+      if (d.type === 'roster' && !localV) {
+        versusMode = d.mode;
+        d.players.forEach(pl => { if (pl.id !== myId) others.set(pl.id, vp(pl.name, pl.team)); });
+        if (d.mode === 'team') {
+          const redCount = d.players.filter(p => p.team === 'red').length, blueCount = d.players.filter(p => p.team === 'blue').length;
+          document.getElementById('versusTeamCounts').textContent = 'Red: ' + redCount + '  •  Blue: ' + blueCount;
+          showScreen('versusTeamPickScreen');
+        } else {
+          localV = vp(profile.name, null);
+          beginVersusPlay();
+        }
+      } else {
+        processVersusMessage(d);
+      }
+    });
+    hostConn.on('close', () => { if (versusRunning) { teardownPeer(); showMainMenu(); } });
+  });
   peer.on('error', err => showVersusStatus('Connection error: ' + err.type));
 };
 
-function resetVersusRound(sendIt) {
-  localV = vp(isHost ? -VERSUS_HALF : VERSUS_HALF, isHost ? 1 : -1);
-  remoteV = vp(isHost ? VERSUS_HALF : -VERSUS_HALF, isHost ? -1 : 1);
-  versusBullets = [];
-  showScreen(null);
-  document.getElementById('versusHud').style.display = 'block';
-  if (sendIt) netSend({ type:'rematch' });
+document.getElementById('versusPickRedBtn').onclick = () => pickTeamAndJoin('red');
+document.getElementById('versusPickBlueBtn').onclick = () => pickTeamAndJoin('blue');
+function pickTeamAndJoin(team) {
+  localV = vp(profile.name, team);
+  if (isHost) { Object.keys(hostConnections).forEach(id => sendRosterTo(id)); beginVersusPlay(); }
+  else { hostConn.send({ type:'hello', from: myId, name: profile.name, team }); beginVersusPlay(); }
 }
 
-function startVersusMatch() {
-  document.getElementById('versusYouName').textContent = profile.name;
-  document.getElementById('versusOppName').textContent = opponentName;
-  resetVersusRound(false);
-  zoom = NORMAL_ZOOM;
+function beginVersusPlay() {
+  if (!localV) return;
+  showScreen(null);
+  document.getElementById('versusHud').style.display = 'block';
+  document.getElementById('versusLeaderboard').style.display = 'block';
+  document.getElementById('versusLeaveBtn').style.display = 'block';
+  document.getElementById('versusTeamScore').style.display = versusMode === 'team' ? 'block' : 'none';
+  cameraX = localV.x; zoom = NORMAL_ZOOM;
+  versusBullets = []; popups = [];
   versusRunning = true;
   versusLoop();
 }
 
+function versusRespawn(p) {
+  p.x = (Math.random() * 2 - 1) * SPAWN_RANGE; p.y = GROUND_Y; p.vy = 0; p.health = p.maxHealth; p.dead = false;
+}
+
 function versusUpdate() {
   if (!versusRunning) return;
-  let dx = 0;
-  if (keys['a']) dx -= 1;
-  if (keys['d']) dx += 1;
-  const targetVx = dx * 5;
-  localV.vx += (targetVx - localV.vx) * 0.35;
-  if (Math.abs(localV.vx) < 0.05) localV.vx = 0;
-  localV.x += localV.vx;
-  localV.x = Math.max(-VERSUS_HALF - 150, Math.min(VERSUS_HALF + 150, localV.x));
-  if (dx !== 0) localV.facing = dx > 0 ? 1 : -1;
+  if (localV.dead) {
+    localV.respawnTimer--;
+    if (localV.respawnTimer <= 0) versusRespawn(localV);
+  } else {
+    let dx = 0;
+    if (keys['a']) dx -= 1;
+    if (keys['d']) dx += 1;
+    const targetVx = dx * 5;
+    localV.vx += (targetVx - localV.vx) * 0.35;
+    if (Math.abs(localV.vx) < 0.05) localV.vx = 0;
+    localV.x += localV.vx;
+    if (dx !== 0) localV.facing = dx > 0 ? 1 : -1;
 
-  if (jumpQueued && localV.onGround) { localV.vy = JUMP_FORCE; localV.onGround = false; }
-  jumpQueued = false;
-  localV.vy += GRAVITY; localV.y += localV.vy;
-  if (localV.y >= GROUND_Y) { localV.y = GROUND_Y; localV.vy = 0; localV.onGround = true; }
+    if (jumpQueued && localV.onGround) { localV.vy = JUMP_FORCE; localV.onGround = false; }
+    localV.vy += GRAVITY; localV.y += localV.vy;
+    if (localV.y >= GROUND_Y) { localV.y = GROUND_Y; localV.vy = 0; localV.onGround = true; }
 
-  if (fireCooldown > 0) fireCooldown--;
-  if (mouse.down && fireCooldown <= 0) {
-    fireCooldown = 12;
-    const bx = localV.x + localV.facing * 20, by = localV.y - 28;
-    versusBullets.push({ x:bx, y:by, vx: localV.facing * 17, vy:0, life:55, damage:18, color:'#f1c40f', owner:'local' });
-    netSend({ type:'shoot', x:bx, y:by, facing: localV.facing });
+    if (fireCooldown > 0) fireCooldown--;
+    if (mouse.down && fireCooldown <= 0) {
+      fireCooldown = 12;
+      const bx = localV.x + localV.facing * 20, by = localV.y - 28;
+      versusBullets.push({ x:bx, y:by, vx: localV.facing * 17, vy:0, life:55, damage:18, ownerId: myId, ownerTeam: localV.team });
+      netBroadcast({ type:'shoot', from: myId, x:bx, y:by, facing: localV.facing, team: localV.team });
+    }
   }
+  jumpQueued = false;
 
   versusBullets.forEach(b => {
     b.x += b.vx; b.y += b.vy; b.life--;
-    if (b.owner === 'remote' && localV.health > 0) {
+    if (b.ownerId !== myId && !localV.dead) {
+      if (versusMode === 'team' && b.ownerTeam === localV.team) return;
       const ddx = Math.abs(b.x - localV.x), ddy = Math.abs(b.y - (localV.y - localV.h * 0.5));
-      if (ddx < localV.w / 2 + 8 && ddy < localV.h / 2 + 8) { localV.health -= b.damage; b.life = 0; }
+      if (ddx < localV.w / 2 + 8 && ddy < localV.h / 2 + 8) {
+        localV.health -= b.damage; b.life = 0; localV.lastHitBy = b.ownerId;
+        if (localV.health <= 0) {
+          localV.dead = true; localV.respawnTimer = 180; localV.health = 0;
+          const killerName = b.ownerId === myId ? localV.name : (others.get(b.ownerId) ? others.get(b.ownerId).name : 'Someone');
+          popups = [{ text: killerName + ' eliminated you!', life:60, maxLife:60, size:34, color:'#e74c3c' }];
+          netBroadcast({ type:'kill', killer: localV.lastHitBy, victim: myId });
+          processVersusMessage({ type:'kill', killer: localV.lastHitBy, victim: myId });
+        }
+      }
     }
   });
   versusBullets = versusBullets.filter(b => b.life > 0);
 
-  cameraX = (localV.x + remoteV.x) / 2;
+  cameraX = localV.x;
+  tickPopups();
 
   const now = performance.now();
   if (now - lastNetSend > 45) {
     lastNetSend = now;
-    netSend({ type:'state', x: localV.x, y: localV.y, vx: localV.vx, facing: localV.facing, health: Math.max(0, localV.health), onGround: localV.onGround });
+    netBroadcast({ type:'state', from: myId, x: localV.x, y: localV.y, vx: localV.vx, facing: localV.facing, health: localV.health, dead: localV.dead, onGround: localV.onGround });
   }
 
-  document.getElementById('versusHealthBarFill').style.width = Math.max(0, localV.health) + '%';
-  document.getElementById('versusOppHealthBarFill').style.width = Math.max(0, remoteV.health) + '%';
+  updateVersusHud();
+}
 
-  if (localV.health <= 0 || remoteV.health <= 0) {
-    versusRunning = false;
-    const won = remoteV.health <= 0 && localV.health > 0;
-    document.getElementById('versusResultTitle').textContent = won ? 'You Win!' : 'You Lose!';
-    document.getElementById('versusResultStats').textContent = won ? ('GG! You defeated ' + opponentName + '.') : (opponentName + ' got the better of you this time.');
-    showScreen('versusEndScreen');
+function updateVersusHud() {
+  document.getElementById('versusHealthBarFill').style.width = Math.max(0, localV.health) + '%';
+  const board = document.getElementById('versusLeaderboard');
+  const all = [{ id: myId, name: localV.name + ' (You)', kills: localV.kills, team: localV.team }];
+  others.forEach((p, id) => all.push({ id, name: p.name, kills: p.kills, team: p.team }));
+  all.sort((a, b) => b.kills - a.kills);
+  board.innerHTML = '<div style="font-weight:bold;margin-bottom:4px;">Leaderboard</div>' + all.map(p => p.name + ': ' + p.kills).join('<br>');
+  if (versusMode === 'team') {
+    let red = localV.team === 'red' ? localV.kills : 0, blue = localV.team === 'blue' ? localV.kills : 0;
+    others.forEach(p => { if (p.team === 'red') red += p.kills; else if (p.team === 'blue') blue += p.kills; });
+    document.getElementById('versusTeamScore').textContent = 'RED ' + red + ' — ' + blue + ' BLUE';
   }
 }
 
@@ -1224,14 +1368,30 @@ function versusDraw() {
 
   versusBullets.forEach(b => {
     const s = worldToScreen(b.x, b.y);
-    ctx.fillStyle = b.color;
+    ctx.fillStyle = versusMode === 'team' ? (b.ownerTeam === 'red' ? '#e74c3c' : '#2980b9') : '#f1c40f';
     ctx.fillRect(s.x - 5 * zoom, s.y - 2 * zoom, 10 * zoom, 4 * zoom);
   });
 
-  const sLocal = worldToScreen(localV.x, localV.y);
-  drawCharacter(sLocal, localV.w * zoom, localV.h * zoom, localV.facing, '#3498db', '#1f5f8b', { gunColor:'#f1c40f' });
-  const sRemote = worldToScreen(remoteV.x, remoteV.y);
-  drawCharacter(sRemote, remoteV.w * zoom, remoteV.h * zoom, remoteV.facing, '#e74c3c', '#7a2d1f', { gunColor:'#f1c40f' });
+  others.forEach((p, id) => {
+    if (p.dead) return;
+    const s = worldToScreen(p.x, p.y);
+    const c = colorFor(p, id);
+    drawCharacter(s, p.w * zoom, p.h * zoom, p.facing, c, shade(c, -40), { gunColor:'#f1c40f', weaponId:'pistol' });
+  });
+
+  if (!localV.dead) {
+    const sLocal = worldToScreen(localV.x, localV.y);
+    const c = colorFor(localV, myId);
+    drawCharacter(sLocal, localV.w * zoom, localV.h * zoom, localV.facing, c, shade(c, -40), { gunColor:'#f1c40f', weaponId:'pistol' });
+  } else {
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.font = 'bold 20px Segoe UI, Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('Respawning in ' + Math.ceil(localV.respawnTimer / 60) + 's', canvas.width / 2, canvas.height * 0.5);
+    ctx.textAlign = 'left';
+  }
+
+  drawPopups();
 }
 
 function versusLoop() {
@@ -1240,8 +1400,7 @@ function versusLoop() {
   if (versusRunning) requestAnimationFrame(versusLoop);
 }
 
-document.getElementById('versusRematchBtn').onclick = () => { resetVersusRound(true); versusRunning = true; versusLoop(); };
-document.getElementById('versusEndMenuBtn').onclick = () => { teardownPeer(); document.getElementById('versusHud').style.display = 'none'; showMainMenu(); };
+document.getElementById('versusLeaveBtn').onclick = () => { teardownPeer(); showMainMenu(); };
 
 // ---------- Wiring ----------
 document.getElementById('createProfileBtn').onclick = () => {
