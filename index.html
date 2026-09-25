@@ -916,22 +916,122 @@ function drawBackground() {
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, canvas.width, groundScreenY);
 
-  const t = performance.now() / 500;
-  stars.forEach(s => {
-    const sx = tiledX(s.baseX, 0.05, STAR_PERIOD) - (STAR_PERIOD * zoom) / 2;
-    const sy = s.yPct * groundScreenY * 0.7;
-    const twinkle = 0.5 + 0.5 * Math.sin(t + s.phase);
-    ctx.fillStyle = 'rgba(255,255,255,' + (0.3 + twinkle * 0.5) + ')';
-    [sx, sx + STAR_PERIOD * zoom].forEach(px => { if (px > -10 && px < canvas.width + 10) ctx.fillRect(px, sy, s.size*zoom, s.size*zoom); });
+  // smoky, burning war-torn sky
+  ctx.fillStyle = 'rgba(25,15,15,0.45)';
+  ctx.fillRect(0, 0, canvas.width, groundScreenY);
+  const fire = ctx.createLinearGradient(0, groundScreenY * 0.45, 0, groundScreenY);
+  fire.addColorStop(0, 'rgba(255,90,20,0)'); fire.addColorStop(1, 'rgba(255,90,20,0.28)');
+  ctx.fillStyle = fire;
+  ctx.fillRect(0, 0, canvas.width, groundScreenY);
+
+  const t = performance.now() / 1000;
+  drawMissiles(t, groundScreenY);
+  drawCityLayer(CITY_FAR, t, groundScreenY);
+  drawCityLayer(CITY_NEAR, t, groundScreenY);
+}
+
+// ---------- Ruined city background ----------
+function buildCity(period, count, minH, maxH, minW, maxW, seed) {
+  let s = seed;
+  const rnd = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
+  const blds = [];
+  let x = 0;
+  for (let i = 0; i < count; i++) {
+    const w = minW + rnd() * (maxW - minW);
+    const h = minH + rnd() * (maxH - minH);
+    const pts = [];
+    const n = 3 + Math.floor(rnd() * 4);
+    for (let k = 0; k <= n; k++) pts.push(rnd() * (h * (rnd() < 0.4 ? 0.45 : 0.16)));
+    const wins = [];
+    const wc = 5 + Math.floor(rnd() * 8);
+    for (let k = 0; k < wc; k++) wins.push({ fx: 0.12 + rnd() * 0.66, fy: 0.22 + rnd() * 0.68, lit: rnd() < 0.18 });
+    blds.push({ x, w, h, pts, wins, smoke: rnd() < 0.3, seed: rnd() * 10 });
+    x += w * (0.85 + rnd() * 0.25) + (rnd() < 0.25 ? 30 + rnd() * 60 : 0);
+  }
+  return { period: Math.max(period, x), blds };
+}
+const CITY_FAR = Object.assign(buildCity(2200, 34, 90, 210, 40, 90, 7331), { parallax: 0.15, baseYPct: 0.74, color: '#241a1d', windows: false });
+const CITY_NEAR = Object.assign(buildCity(2200, 24, 120, 300, 60, 130, 991), { parallax: 0.32, baseYPct: 0.8, color: '#151012', windows: true });
+
+function drawCityLayer(L, t, groundScreenY) {
+  const baseY = canvas.height * L.baseYPct;
+  const P = L.period * zoom;
+  const cam = cameraX * L.parallax * zoom;
+  const off = ((-cam) % P + P) % P - P;
+  for (let k = 0; k < 3; k++) {
+    const ox = off + k * P;
+    if (ox > canvas.width) break;
+    L.blds.forEach(b => {
+      const x = ox + b.x * zoom, w = b.w * zoom;
+      if (x + w < -60 || x > canvas.width + 60) return;
+      const top = baseY - b.h * zoom;
+      ctx.fillStyle = L.color;
+      ctx.beginPath();
+      ctx.moveTo(x, baseY);
+      const step = w / (b.pts.length - 1);
+      b.pts.forEach((p, i) => ctx.lineTo(x + i * step, top + p * zoom));
+      ctx.lineTo(x + w, baseY);
+      ctx.closePath();
+      ctx.fill();
+      if (L.windows) {
+        b.wins.forEach(wn => {
+          const wx = x + wn.fx * w, wy = top + wn.fy * b.h * zoom;
+          ctx.fillStyle = wn.lit ? 'rgba(255,150,50,0.75)' : 'rgba(0,0,0,0.55)';
+          ctx.fillRect(wx, wy, 6 * zoom, 8 * zoom);
+        });
+      }
+      if (b.smoke) drawSmokeColumn(x + w * 0.5, top + b.pts[1] * zoom, b.seed, t, L.windows ? 1.2 : 0.8);
+    });
+  }
+}
+
+function drawSmokeColumn(sx, sy, seed, t, size) {
+  for (let i = 0; i < 9; i++) {
+    const age = ((t * 0.09 + i / 9 + seed) % 1);
+    const px = sx + (Math.sin(age * 5 + seed) * 16 + age * 90) * zoom;
+    const py = sy - age * 330 * zoom;
+    const r = (14 + age * 46) * size * zoom;
+    ctx.fillStyle = 'rgba(' + (55 + age * 25) + ',' + (48 + age * 22) + ',' + (50 + age * 22) + ',' + ((1 - age) * 0.4) + ')';
+    ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2); ctx.fill();
+  }
+  const glow = 0.5 + 0.5 * Math.sin(t * 6 + seed * 3);
+  ctx.fillStyle = 'rgba(255,110,30,' + (0.35 + glow * 0.25) + ')';
+  ctx.beginPath(); ctx.arc(sx, sy + 4 * zoom, (6 + glow * 3) * size * zoom, 0, Math.PI * 2); ctx.fill();
+}
+
+const MISSILES = [
+  { offset: 0.0, speed: 0.11, startX: 0.05, endX: 0.42 },
+  { offset: 0.37, speed: 0.09, startX: 0.55, endX: 0.9 },
+  { offset: 0.68, speed: 0.13, startX: 0.3, endX: 0.72 }
+];
+function drawMissiles(t, groundScreenY) {
+  if (canvas.width < 2 || groundScreenY < 2) return;
+  MISSILES.forEach(m => {
+    const p = (t * m.speed + m.offset) % 1;
+    const sx = canvas.width * m.startX, ex = canvas.width * m.endX;
+    const sy = groundScreenY * 0.02, ey = groundScreenY * 0.78;
+    if (p < 0.88) {
+      const q = p / 0.88;
+      const hx = sx + (ex - sx) * q, hy = sy + (ey - sy) * q;
+      const dx = ex - sx, dy = ey - sy, len = Math.hypot(dx, dy);
+      const tx = hx - dx / len * 110, ty = hy - dy / len * 110;
+      const trail = ctx.createLinearGradient(tx, ty, hx, hy);
+      trail.addColorStop(0, 'rgba(255,140,40,0)'); trail.addColorStop(1, 'rgba(255,200,120,0.9)');
+      ctx.strokeStyle = trail; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(hx, hy); ctx.stroke();
+      ctx.fillStyle = '#fff2c4';
+      ctx.beginPath(); ctx.arc(hx, hy, 3.5, 0, Math.PI * 2); ctx.fill();
+    } else {
+      const q = (p - 0.88) / 0.12;
+      const r = 12 + q * 70;
+      const g = ctx.createRadialGradient(ex, ey, 0, ex, ey, r);
+      g.addColorStop(0, 'rgba(255,240,180,' + (0.9 * (1 - q)) + ')');
+      g.addColorStop(0.5, 'rgba(255,120,30,' + (0.6 * (1 - q)) + ')');
+      g.addColorStop(1, 'rgba(255,60,10,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(ex, ey, r, 0, Math.PI * 2); ctx.fill();
+    }
   });
-
-  drawRidgeLayer(0.72, 140, 300, 0.15, biome.ridge[0]);
-  drawRidgeLayer(0.78, 90, 220, 0.32, biome.ridge[1]);
-
-  const cloudSpacing = 380;
-  const camScreen = cameraX * 0.4 * zoom;
-  let cStart = -cloudSpacing * zoom - (camScreen % (cloudSpacing * zoom));
-  for (let x = cStart; x < canvas.width + cloudSpacing * zoom; x += cloudSpacing * zoom) drawCloud(x + cloudSpacing*zoom*0.5, groundScreenY*0.22, zoom);
 }
 function fillRoundRect(x, y, w, h, r) {
   ctx.beginPath();
