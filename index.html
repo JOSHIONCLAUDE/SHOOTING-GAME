@@ -768,7 +768,7 @@ function update() {
 
   traps.forEach(t => {
     if (t.type === 'spike') {
-      if (Math.abs(player.x - t.x) < t.w / 2 + player.w / 2 && player.invuln <= 0) {
+      if (Math.abs(player.x - t.x) < t.w / 2 + player.w / 2 && player.y > -14 && player.invuln <= 0) {
         damagePlayer(14); player.invuln = 30; damageFlash = player.shieldActive ? 0 : 0.4;
         if (!player.shieldActive) sfxDamage();
         player.x += player.x < t.x ? -10 : 10;
