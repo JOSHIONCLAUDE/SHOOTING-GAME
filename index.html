@@ -229,11 +229,23 @@ const BIOMES = [
   { name:'Storm Peak',    sky:['#1a2333','#2f3a5a','#6a7aa0'], ground:['#2a2f3f','#181a24'], ridge:['#242a40','#2f3a5a'] }
 ];
 
+const FINAL_BOSSES = {
+  30:  { kind:'warlord', name:'IRON WARLORD', hpMult:2.2, dmgMult:1.3, speedMult:0.8, w:84,  h:112, color:'#6c7a89', head:'#3d4852', gun:'#d0d6dc', coinMult:3 },
+  50:  { kind:'reaper',  name:'VOID REAPER',  hpMult:3.0, dmgMult:1.5, speedMult:0.5, w:70,  h:104, color:'#3b1c5a', head:'#1d0d30', gun:'#c77dff', coinMult:4 },
+  100: { kind:'titan',   name:'DOOM TITAN',   hpMult:5.0, dmgMult:1.8, speedMult:0.7, w:118, h:150, color:'#8b1a1a', head:'#4a0d0d', gun:'#ffb347', coinMult:8 }
+};
+
 function getLevelConfig(n) {
   const isBoss = n % 10 === 0;
   const biome = BIOMES[Math.floor((n - 1) / 10) % BIOMES.length];
   if (isBoss) {
-    return { level:n, isBoss:true, biome, bossHp:300 + n * 22, bossDamage:12 + Math.floor(n / 10) * 3, bossSpeed:0.9 + n * 0.008 };
+    const fin = FINAL_BOSSES[n] || null;
+    return {
+      level:n, isBoss:true, biome, final:fin,
+      bossHp:Math.round((300 + n * 22) * (fin ? fin.hpMult : 1)),
+      bossDamage:Math.round((12 + Math.floor(n / 10) * 3) * (fin ? fin.dmgMult : 1)),
+      bossSpeed:(0.9 + n * 0.008) * (fin ? fin.speedMult : 1)
+    };
   }
   const available = ['grunt'];
   if (n >= 3) available.push('runner');
@@ -359,7 +371,7 @@ function buildLevelGrid() {
     const done = profile.completedLevels.includes(i);
     const isBoss = i % 10 === 0;
     btn.className = 'levelBtn' + (locked ? ' locked' : '') + (isBoss ? ' boss' : '') + (done ? ' done' : '');
-    btn.textContent = isBoss ? '👑' + i : i;
+    btn.textContent = FINAL_BOSSES[i] ? '☠' + i : isBoss ? '👑' + i : i;
     if (!locked) btn.onclick = () => startLevel(i);
     grid.appendChild(btn);
   }
@@ -528,9 +540,9 @@ function explode(x, y, radius, damage, color) {
 }
 
 // ---------- Spawning ----------
-function spawnEnemy() {
+function spawnEnemy(typeOverride) {
   const cfg = currentLevelConfig;
-  const type = cfg.availableTypes[Math.floor(Math.random() * cfg.availableTypes.length)];
+  const type = typeOverride || cfg.availableTypes[Math.floor(Math.random() * cfg.availableTypes.length)];
   const def = ENEMY_TYPES[type];
   const gunDef = GUNS.find(g => g.id === def.weapon);
   const side = Math.random() < 0.5 ? -1 : 1;
@@ -553,10 +565,46 @@ function spawnSquad() {
 }
 function spawnBoss() {
   const cfg = currentLevelConfig;
-  bossRef = { x:player.x + 500, y:GROUND_Y, w:64, h:86, speed:cfg.bossSpeed, health:cfg.bossHp, maxHealth:cfg.bossHp, damage:cfg.bossDamage, attackCooldown:60, dead:false, shootFlash:0 };
+  const f = cfg.final;
+  bossRef = {
+    x:player.x + 500, y:GROUND_Y, w:f ? f.w : 64, h:f ? f.h : 86, speed:cfg.bossSpeed, health:cfg.bossHp, maxHealth:cfg.bossHp,
+    damage:cfg.bossDamage, attackCooldown:60, dead:false, shootFlash:0,
+    kind:f ? f.kind : 'normal', color:f ? f.color : '#8e44ad', head:f ? f.head : '#5e2d7a', gun:f ? f.gun : '#ff5533',
+    attackCount:0, blinkTimer:0
+  };
   document.getElementById('bossBarWrap').style.display = 'block';
-  document.getElementById('bossName').textContent = 'BOSS — LEVEL ' + cfg.level;
+  document.getElementById('bossName').textContent = f ? 'FINAL BOSS — ' + f.name : 'BOSS — LEVEL ' + cfg.level;
+  if (f) popups = [{ text:'FINAL BOSS: ' + f.name, life:130, maxLife:130, size:48, color:'#ff5533' }];
   document.getElementById('bossBarFill').style.width = '100%';
+}
+function bossAttack(dir) {
+  const b = bossRef, y = b.y - b.h * 0.6, dmg = b.damage * 0.6;
+  b.attackCount++;
+  b.shootFlash = 6;
+  const shot = (vx, vy, color, size) => enemyProjectiles.push({ x:b.x, y, vx, vy, life:110, damage:dmg, color, size });
+  if (b.kind === 'warlord') {
+    const n = b.attackCount % 3 === 0 ? 9 : 5;
+    for (let i = 0; i < n; i++) shot(dir * 7, (i - (n - 1) / 2) * 1.6, '#ffcf6b', 9);
+    if (n === 9) screenShake = Math.max(screenShake, 8);
+    b.attackCooldown = 70;
+  } else if (b.kind === 'reaper') {
+    spawnParticles(b.x, b.y - b.h / 2, '#c77dff');
+    b.x = player.x + (Math.random() < 0.5 ? -1 : 1) * (240 + Math.random() * 80);
+    spawnParticles(b.x, b.y - b.h / 2, '#c77dff');
+    for (let i = 0; i < 6; i++) { const vy = (i - 2.5) * 1.3; shot(6, vy, '#c77dff', 8); shot(-6, vy, '#c77dff', 8); }
+    b.attackCooldown = 80;
+  } else if (b.kind === 'titan') {
+    const frac = b.health / b.maxHealth;
+    const phase = frac > 0.66 ? 1 : frac > 0.33 ? 2 : 3;
+    const n = 5 + phase * 2;
+    for (let i = 0; i < n; i++) shot(dir * (7 + phase), (i - (n - 1) / 2) * 1.5, '#ff7b3a', 11);
+    if (phase >= 2 && b.attackCount % 2 === 0 && enemies.length < 4) { spawnEnemy(phase === 3 ? 'runner' : 'grunt'); spawnEnemy(phase === 3 ? 'runner' : 'grunt'); }
+    screenShake = Math.max(screenShake, 5 + phase * 2);
+    b.attackCooldown = [80, 62, 46][phase - 1];
+  } else {
+    for (let i = -1; i <= 1; i++) shot(dir * 8, i * 2.2, '#ff5533', 8);
+    b.attackCooldown = 85;
+  }
 }
 function generateTraps(cfg) {
   traps = [];
@@ -620,7 +668,7 @@ function onLevelComplete() {
   running = false;
   sfxLevelComplete();
   const cfg = currentLevelConfig;
-  const coinsEarned = 15 + cfg.level * 3 + (cfg.isBoss ? 100 : 0) + coinsThisRun;
+  const coinsEarned = 15 + cfg.level * 3 + (cfg.isBoss ? 100 : 0) + (cfg.final ? 300 : 0) + coinsThisRun;
   profile.coins += coinsEarned;
   if (!profile.completedLevels.includes(cfg.level)) profile.completedLevels.push(cfg.level);
   profile.unlockedLevel = Math.max(profile.unlockedLevel, Math.min(cfg.level + 1, 100));
@@ -729,11 +777,8 @@ function update() {
       const pRect = { left:player.x - player.w / 2, right:player.x + player.w / 2, top:player.y - player.h, bottom:player.y };
       const bRect = { left:bossRef.x - bossRef.w / 2, right:bossRef.x + bossRef.w / 2, top:bossRef.y - bossRef.h, bottom:bossRef.y };
       if (rectsOverlap(pRect, bRect)) damagePlayer(bossRef.damage * 0.06);
-    } else if (bossRef.attackCooldown <= 0) {
-      for (let i = -1; i <= 1; i++) enemyProjectiles.push({ x:bossRef.x, y:bossRef.y - bossRef.h * 0.6, vx:dir * 8, vy:i * 2.2, life:110, damage:bossRef.damage * 0.6, color:'#ff5533', size:8 });
-      bossRef.attackCooldown = 85;
-      bossRef.shootFlash = 6;
     }
+    if (bossRef.attackCooldown <= 0 && (dist > 90 || bossRef.kind !== 'normal')) bossAttack(dir);
     document.getElementById('bossBarFill').style.width = Math.max(0, bossRef.health / bossRef.maxHealth * 100) + '%';
   }
 
@@ -812,11 +857,13 @@ function update() {
     bossRef.dead = true;
     explode(bossRef.x, bossRef.y - bossRef.h / 2, 140, 0, '#f1c40f');
     runScore += 200;
-    const bossTotal = 50 + currentLevelConfig.level * 3;
+    const fin = currentLevelConfig.final;
+    const bossTotal = (50 + currentLevelConfig.level * 3) * (fin ? fin.coinMult : 1);
     const bossPerCoin = Math.max(1, Math.round(bossTotal / 6));
     for (let i = 0; i < 6; i++) spawnCoinDrop(bossRef.x, bossRef.y, bossPerCoin);
     document.getElementById('bossBarWrap').style.display = 'none';
-    popups = [{ text:'BOSS DOWN!', life:70, maxLife:70, size:56, color:'#f1c40f' }];
+    popups = [{ text: fin ? 'FINAL BOSS DEFEATED!' : 'BOSS DOWN!', life:fin ? 110 : 70, maxLife:fin ? 110 : 70, size:fin ? 60 : 56, color:'#f1c40f' }];
+    if (fin) { enemies = []; enemyProjectiles = []; screenShake = 20; }
     bossRef = null;
   }
 
@@ -1240,13 +1287,36 @@ function draw() {
     const s = worldToScreen(bossRef.x, bossRef.y);
     const facing = player.x > bossRef.x ? 1 : -1;
     const legSwing = Math.sin(frameCount * 0.2) * 0.5;
-    drawCharacter(s, bossRef.w*zoom, bossRef.h*zoom, facing, '#8e44ad', '#5e2d7a', { legSwing, gunColor:'#ff5533', weaponId:'rocket', muzzleFlash: bossRef.shootFlash > 0, gunLen: bossRef.w * 1.1 });
-    ctx.fillStyle = '#f1c40f';
-    ctx.beginPath();
-    ctx.moveTo(s.x - 14*zoom, s.y - bossRef.h*zoom - 6*zoom);
-    ctx.lineTo(s.x, s.y - bossRef.h*zoom - 20*zoom);
-    ctx.lineTo(s.x + 14*zoom, s.y - bossRef.h*zoom - 6*zoom);
-    ctx.closePath(); ctx.fill();
+    const bk = bossRef.kind, bw = bossRef.w * zoom, bh = bossRef.h * zoom;
+    if (bk !== 'normal') {
+      const pulse = 0.5 + 0.5 * Math.sin(frameCount * 0.08);
+      const aura = ctx.createRadialGradient(s.x, s.y - bh / 2, bh * 0.2, s.x, s.y - bh / 2, bh * (0.75 + pulse * 0.12));
+      aura.addColorStop(0, 'rgba(255,255,255,0)'); aura.addColorStop(1, bossRef.gun + '55');
+      ctx.fillStyle = aura;
+      ctx.beginPath(); ctx.arc(s.x, s.y - bh / 2, bh * (0.75 + pulse * 0.12), 0, Math.PI * 2); ctx.fill();
+    }
+    drawCharacter(s, bw, bh, facing, bossRef.color, bossRef.head, { legSwing, gunColor:bossRef.gun, weaponId:'rocket', muzzleFlash: bossRef.shootFlash > 0, gunLen: bossRef.w * 1.1 });
+    const topY = s.y - bh;
+    if (bk === 'warlord') {
+      ctx.fillStyle = '#d0d6dc';
+      [-1, 1].forEach(sd => { ctx.beginPath(); ctx.moveTo(s.x + sd * 12 * zoom, topY + 6 * zoom); ctx.lineTo(s.x + sd * 30 * zoom, topY - 22 * zoom); ctx.lineTo(s.x + sd * 20 * zoom, topY + 10 * zoom); ctx.closePath(); ctx.fill(); });
+    } else if (bk === 'reaper') {
+      ctx.fillStyle = '#1d0d30';
+      ctx.beginPath(); ctx.moveTo(s.x - 20 * zoom, topY + 14 * zoom); ctx.lineTo(s.x, topY - 30 * zoom); ctx.lineTo(s.x + 20 * zoom, topY + 14 * zoom); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#e0aaff';
+      ctx.fillRect(s.x + facing * 4 * zoom - 8 * zoom, topY + 6 * zoom, 5 * zoom, 4 * zoom);
+      ctx.fillRect(s.x + facing * 4 * zoom + 3 * zoom, topY + 6 * zoom, 5 * zoom, 4 * zoom);
+    } else if (bk === 'titan') {
+      ctx.fillStyle = '#ffb347';
+      for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.moveTo(s.x + i * 14 * zoom - 6 * zoom, topY + 4 * zoom); ctx.lineTo(s.x + i * 14 * zoom, topY - (i === 0 ? 34 : 22) * zoom); ctx.lineTo(s.x + i * 14 * zoom + 6 * zoom, topY + 4 * zoom); ctx.closePath(); ctx.fill(); }
+    } else {
+      ctx.fillStyle = '#f1c40f';
+      ctx.beginPath();
+      ctx.moveTo(s.x - 14*zoom, topY - 6*zoom);
+      ctx.lineTo(s.x, topY - 20*zoom);
+      ctx.lineTo(s.x + 14*zoom, topY - 6*zoom);
+      ctx.closePath(); ctx.fill();
+    }
   }
 
   particles.forEach(p => {
