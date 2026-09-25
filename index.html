@@ -252,7 +252,7 @@ let frameCount = 0;
 let runScore = 0, coinsThisRun = 0;
 let enemiesLeftInWave = 0, squadQueued = false;
 let bossRef = null;
-let bullets = [], enemies = [], particles = [], enemyProjectiles = [], traps = [], popups = [];
+let bullets = [], enemies = [], particles = [], enemyProjectiles = [], traps = [], popups = [], coinDrops = [];
 let damageFlash = 0, screenShake = 0;
 let beamFiring = false;
 let coyoteTimer = 0, jumpBufferTimer = 0, jumpQueued = false;
@@ -268,6 +268,61 @@ const keys = {};
 let mouse = { x:0, y:0, down:false };
 let zoom = 1;
 let fireCooldown = 0;
+
+// ---------- Sound engine (synthesized, no audio files) ----------
+let audioCtx = null;
+function ensureAudio() {
+  if (!audioCtx) { try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+  else if (audioCtx.state === 'suspended') { audioCtx.resume(); }
+}
+document.addEventListener('pointerdown', ensureAudio, { once:true });
+document.addEventListener('click', e => { if (e.target.closest && e.target.closest('.btn, .levelBtn')) sfxClick(); });
+
+function tone(freq, dur, type, vol, freqEnd) {
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type || 'square';
+  osc.frequency.setValueAtTime(freq, t0);
+  if (freqEnd) osc.frequency.exponentialRampToValueAtTime(Math.max(freqEnd, 1), t0 + dur);
+  gain.gain.setValueAtTime(vol || 0.12, t0);
+  gain.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  osc.start(t0); osc.stop(t0 + dur);
+}
+function noiseHit(dur, vol) {
+  if (!audioCtx) return;
+  const n = Math.floor(audioCtx.sampleRate * dur);
+  const buf = audioCtx.createBuffer(1, n, audioCtx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf;
+  const gain = audioCtx.createGain();
+  gain.gain.setValueAtTime(vol || 0.18, audioCtx.currentTime);
+  src.connect(gain); gain.connect(audioCtx.destination);
+  src.start();
+}
+function sfxClick() { tone(440, 0.05, 'square', 0.06); }
+function sfxShoot(kind) {
+  if (kind === 'shotgun') { noiseHit(0.12, 0.22); tone(120, 0.1, 'square', 0.1, 60); }
+  else if (kind === 'rocket') { tone(180, 0.25, 'sawtooth', 0.15, 40); }
+  else if (kind === 'grenade') { tone(300, 0.08, 'sine', 0.08, 150); }
+  else if (kind === 'beam') { tone(900, 0.04, 'sine', 0.04, 700); }
+  else { tone(700, 0.05, 'square', 0.08, 300); }
+}
+function sfxExplosion() { noiseHit(0.35, 0.28); tone(90, 0.35, 'sawtooth', 0.2, 30); }
+function sfxJump() { tone(300, 0.12, 'square', 0.08, 600); }
+function sfxReloadStart() { tone(220, 0.06, 'square', 0.06); }
+function sfxReloadDone() { tone(500, 0.05, 'square', 0.08); setTimeout(() => tone(700, 0.06, 'square', 0.08), 60); }
+function sfxDamage() { tone(160, 0.15, 'sawtooth', 0.12, 60); }
+function sfxKill() { tone(500, 0.05, 'square', 0.07); setTimeout(() => tone(750, 0.08, 'square', 0.07), 50); }
+function sfxCoin() { tone(988, 0.05, 'square', 0.06); setTimeout(() => tone(1318, 0.08, 'square', 0.06), 40); }
+function sfxMedkit() { tone(500, 0.08, 'sine', 0.1, 800); }
+function sfxLevelComplete() { [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => tone(f, 0.15, 'square', 0.09), i * 90)); }
+function sfxGameOver() { tone(300, 0.4, 'sawtooth', 0.15, 80); }
+function sfxShield() { tone(400, 0.1, 'sine', 0.07, 600); }
 
 const STAR_PERIOD = 1400;
 const stars = Array.from({ length: 60 }, () => ({
@@ -368,7 +423,7 @@ window.addEventListener('keydown', e => {
   if (e.key.toLowerCase() === 'r' && running && !paused) {
     const gun = currentGun();
     const ammo = ammoState[gun.id];
-    if (ammo && !ammo.reloading && ammo.mag < gun.magSize) { ammo.reloading = true; ammo.reloadTimer = gun.reloadTime; }
+    if (ammo && !ammo.reloading && ammo.mag < gun.magSize) { ammo.reloading = true; ammo.reloadTimer = gun.reloadTime; sfxReloadStart(); }
   }
   if (e.key.toLowerCase() === 'j' && !e.repeat && running && !paused) {
     if (player.medkits > 0 && player.medkitCooldown <= 0 && player.health < player.maxHealth) {
@@ -377,6 +432,7 @@ window.addEventListener('keydown', e => {
       const healed = Math.min(35, player.maxHealth - player.health);
       player.health += healed;
       spawnParticles(player.x, player.y - player.h * 0.5, '#2ecc71');
+      sfxMedkit();
       popups = [{ text:'Healed! +' + Math.round(healed), life:40, maxLife:40, size:36, color:'#2ecc71' }];
     }
   }
@@ -429,6 +485,7 @@ function shoot() {
     ammo.mag--;
   }
   muzzleFlashTimer = 4;
+  sfxShoot(gun.kind);
   for (let i = 0; i < gun.pellets; i++) {
     const spreadAngle = gun.pellets === 1 ? 0 : (i - (gun.pellets - 1) / 2) * (gun.spread / (gun.pellets - 1));
     const wiggle = gun.spread > 0 && gun.pellets === 1 ? (Math.random() - 0.5) * gun.spread : 0;
@@ -455,6 +512,7 @@ function beamTick() {
   if (bossRef && !bossRef.dead && hitCheck(bossRef)) bossRef.health -= gun.damage;
 }
 function explode(x, y, radius, damage, color) {
+  sfxExplosion();
   spawnParticles(x, y, color);
   enemies.forEach(en => {
     const dist = Math.hypot(en.x - x, (en.y - en.h / 2) - y);
@@ -510,6 +568,9 @@ function generateTraps(cfg) {
     else if (type === 'laser') traps.push({ type:'laser', x: side * dist, w:14, onTime:120, offTime:90, phase:i * 37, active:false });
   }
 }
+function spawnCoinDrop(x, y, value) {
+  coinDrops.push({ x: x + (Math.random() - 0.5) * 20, y, vx:(Math.random() - 0.5) * 3, vy:-4 - Math.random() * 2, life:600, value });
+}
 function spawnParticles(x, y, color) {
   for (let i = 0; i < 12; i++) {
     const a = Math.random() * Math.PI * 2;
@@ -536,7 +597,7 @@ function startLevel(n) {
   player.medkits = 1 + profile.upgrades.medkit; player.medkitCooldown = 0;
   killStreak = 0; killStreakTimer = 0; popups = [];
 
-  bullets = []; enemies = []; particles = []; enemyProjectiles = []; traps = [];
+  bullets = []; enemies = []; particles = []; enemyProjectiles = []; traps = []; coinDrops = [];
   bossRef = null; coinsThisRun = 0; runScore = 0; frameCount = 0; screenShake = 0; damageFlash = 0;
 
   document.getElementById('levelNum').textContent = n;
@@ -555,6 +616,7 @@ function startLevel(n) {
 }
 function onLevelComplete() {
   running = false;
+  sfxLevelComplete();
   const cfg = currentLevelConfig;
   const coinsEarned = 15 + cfg.level * 3 + (cfg.isBoss ? 100 : 0) + coinsThisRun;
   profile.coins += coinsEarned;
@@ -568,6 +630,7 @@ function onLevelComplete() {
 }
 function gameOver() {
   running = false;
+  sfxGameOver();
   document.getElementById('gameOverStats').innerHTML = 'You were defeated on Level ' + currentLevelConfig.level + '.<br>Score: ' + runScore;
   showScreen('gameOverScreen');
 }
@@ -583,6 +646,7 @@ function update() {
   screenShake *= 0.85; if (screenShake < 0.5) screenShake = 0;
 
   if (keys['k'] && player.shieldMeter > 0) {
+    if (!player.shieldActive) sfxShield();
     player.shieldActive = true;
     player.shieldMeter -= 1.2;
     if (player.shieldMeter < 0) player.shieldMeter = 0;
@@ -603,7 +667,7 @@ function update() {
 
   if (player.onGround) coyoteTimer = 6; else if (coyoteTimer > 0) coyoteTimer--;
   if (jumpQueued) { jumpBufferTimer = 6; jumpQueued = false; } else if (jumpBufferTimer > 0) jumpBufferTimer--;
-  if (jumpBufferTimer > 0 && coyoteTimer > 0) { player.vy = JUMP_FORCE; player.onGround = false; jumpBufferTimer = 0; coyoteTimer = 0; }
+  if (jumpBufferTimer > 0 && coyoteTimer > 0) { player.vy = JUMP_FORCE; player.onGround = false; jumpBufferTimer = 0; coyoteTimer = 0; sfxJump(); }
 
   player.vy += GRAVITY; player.y += player.vy;
   if (player.y >= GROUND_Y) { player.y = GROUND_Y; player.vy = 0; player.onGround = true; }
@@ -614,14 +678,14 @@ function update() {
     const a = ammoState[id];
     if (a.reloading) {
       a.reloadTimer--;
-      if (a.reloadTimer <= 0) { a.reloading = false; a.mag = GUNS.find(g => g.id === id).magSize; }
+      if (a.reloadTimer <= 0) { a.reloading = false; a.mag = GUNS.find(g => g.id === id).magSize; sfxReloadDone(); }
     }
   });
   const gun = currentGun();
   if (mouse.down && gun.kind === 'beam') { beamTick(); beamFiring = true; } else { beamFiring = false; }
   if (mouse.down && gun.kind !== 'beam') {
     const ammo = ammoState[gun.id];
-    if (ammo && ammo.mag <= 0 && !ammo.reloading) { ammo.reloading = true; ammo.reloadTimer = gun.reloadTime; }
+    if (ammo && ammo.mag <= 0 && !ammo.reloading) { ammo.reloading = true; ammo.reloadTimer = gun.reloadTime; sfxReloadStart(); }
     if (fireCooldown <= 0) { shoot(); fireCooldown = gun.cooldown; }
   }
 
@@ -697,6 +761,7 @@ function update() {
     const ddx = Math.abs(p.x - player.x), ddy = Math.abs(p.y - (player.y - player.h / 2));
     if (ddx < player.w / 2 + 6 && ddy < player.h / 2 + 10 && player.invuln <= 0) {
       damagePlayer(p.damage); player.invuln = 20; damageFlash = player.shieldActive ? 0 : 0.4; p.life = 0;
+      if (!player.shieldActive) sfxDamage();
     }
   });
   enemyProjectiles = enemyProjectiles.filter(p => p.life > 0);
@@ -705,6 +770,7 @@ function update() {
     if (t.type === 'spike') {
       if (Math.abs(player.x - t.x) < t.w / 2 + player.w / 2 && player.invuln <= 0) {
         damagePlayer(14); player.invuln = 30; damageFlash = player.shieldActive ? 0 : 0.4;
+        if (!player.shieldActive) sfxDamage();
         player.x += player.x < t.x ? -10 : 10;
       }
     } else if (t.type === 'laser') {
@@ -722,7 +788,9 @@ function update() {
     if (en.health <= 0 && !en.dead) {
       en.dead = true;
       spawnParticles(en.x, en.y - en.h / 2, '#e74c3c');
-      runScore += 10; coinsThisRun += 2;
+      runScore += 10;
+      spawnCoinDrop(en.x, en.y, 2);
+      sfxKill();
       screenShake = Math.max(screenShake, 3);
       killStreak++; killStreakTimer = 90;
       const word = KILL_WORDS[Math.min(killStreak - 1, KILL_WORDS.length - 1)];
@@ -734,7 +802,8 @@ function update() {
   if (bossRef && bossRef.health <= 0 && !bossRef.dead) {
     bossRef.dead = true;
     explode(bossRef.x, bossRef.y - bossRef.h / 2, 140, 0, '#f1c40f');
-    runScore += 200; coinsThisRun += 50;
+    runScore += 200;
+    for (let i = 0; i < 6; i++) spawnCoinDrop(bossRef.x, bossRef.y, 10);
     document.getElementById('bossBarWrap').style.display = 'none';
     popups = [{ text:'BOSS DOWN!', life:70, maxLife:70, size:56, color:'#f1c40f' }];
     bossRef = null;
@@ -743,6 +812,20 @@ function update() {
   particles.forEach(p => { p.x += p.vx; p.y += p.vy; p.life--; });
   particles = particles.filter(p => p.life > 0);
   tickPopups();
+
+  coinDrops.forEach(c => {
+    c.vy += 0.5; c.x += c.vx; c.y += c.vy;
+    if (c.y >= GROUND_Y) { c.y = GROUND_Y; c.vy = 0; c.vx *= 0.85; }
+    c.life--;
+    const ddx = Math.abs(c.x - player.x), ddy = Math.abs(c.y - player.y);
+    if (ddx < 45 && ddy < 70) {
+      coinsThisRun += c.value;
+      sfxCoin();
+      spawnParticles(c.x, c.y - 10, '#f1c40f');
+      c.life = 0;
+    }
+  });
+  coinDrops = coinDrops.filter(c => c.life > 0);
 
   if (currentLevelConfig.isBoss) {
     if (!bossRef && running) onLevelComplete();
@@ -1000,6 +1083,15 @@ function draw() {
 
   traps.forEach(drawTrap);
 
+  coinDrops.forEach(c => {
+    const s = worldToScreen(c.x, c.y);
+    const bob = Math.sin((frameCount + c.x) * 0.15) * 2 * zoom;
+    ctx.fillStyle = '#f1c40f';
+    ctx.beginPath(); ctx.arc(s.x, s.y - 8 * zoom + bob, 6 * zoom, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff3c4';
+    ctx.beginPath(); ctx.arc(s.x - 2 * zoom, s.y - 10 * zoom + bob, 2 * zoom, 0, Math.PI * 2); ctx.fill();
+  });
+
   bullets.forEach(b => {
     const s = worldToScreen(b.x, b.y);
     ctx.fillStyle = b.color || '#f1c40f';
@@ -1182,7 +1274,7 @@ function processVersusMessage(data) {
   } else if (data.type === 'shoot') {
     versusBullets.push({ x:data.x, y:data.y, vx: data.facing * 17, vy:0, life:55, damage:18, ownerId: fromId, ownerTeam: data.team });
   } else if (data.type === 'kill') {
-    if (data.killer === myId) { localV.kills++; }
+    if (data.killer === myId) { localV.kills++; sfxKill(); }
     else { const p = others.get(data.killer); if (p) p.kills++; }
     updateVersusHud();
   } else if (data.type === 'leave') {
@@ -1306,6 +1398,7 @@ function versusUpdate() {
       const bx = localV.x + localV.facing * 20, by = localV.y - 28;
       versusBullets.push({ x:bx, y:by, vx: localV.facing * 17, vy:0, life:55, damage:18, ownerId: myId, ownerTeam: localV.team });
       netBroadcast({ type:'shoot', from: myId, x:bx, y:by, facing: localV.facing, team: localV.team });
+      sfxShoot('bullet');
     }
   }
   jumpQueued = false;
@@ -1317,6 +1410,7 @@ function versusUpdate() {
       const ddx = Math.abs(b.x - localV.x), ddy = Math.abs(b.y - (localV.y - localV.h * 0.5));
       if (ddx < localV.w / 2 + 8 && ddy < localV.h / 2 + 8) {
         localV.health -= b.damage; b.life = 0; localV.lastHitBy = b.ownerId;
+        sfxDamage();
         if (localV.health <= 0) {
           localV.dead = true; localV.respawnTimer = 180; localV.health = 0;
           const killerName = b.ownerId === myId ? localV.name : (others.get(b.ownerId) ? others.get(b.ownerId).name : 'Someone');
