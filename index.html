@@ -208,10 +208,10 @@ function currentGun() { return GUNS.find(g => g.id === currentGunId); }
 
 // ---------- Data: enemies ----------
 const ENEMY_TYPES = {
-  grunt:   { hpBase:30, hpPerLevel:6,  speedBase:1.3, speedPerLevel:0.05, damage:10, weapon:'pistol',  shootRange:260, color:'#c0392b', w:26, h:42 },
-  runner:  { hpBase:16, hpPerLevel:4,  speedBase:2.4, speedPerLevel:0.07, damage:6,  weapon:'smg',     shootRange:190, color:'#e67e22', w:22, h:38 },
-  tank:    { hpBase:80, hpPerLevel:10, speedBase:0.7, speedPerLevel:0.02, damage:16, weapon:'shotgun', shootRange:160, color:'#7f8c8d', w:36, h:52 },
-  shooter: { hpBase:22, hpPerLevel:5,  speedBase:0.9, speedPerLevel:0.02, damage:14, weapon:'sniper',  shootRange:480, color:'#9b59b6', w:26, h:42 }
+  grunt:   { hpBase:30, hpPerLevel:6,  speedBase:1.3, speedPerLevel:0.05, damage:10, weapon:'pistol',  shootRange:260, color:'#c0392b', w:26, h:42, coinValue:2 },
+  runner:  { hpBase:16, hpPerLevel:4,  speedBase:2.4, speedPerLevel:0.07, damage:6,  weapon:'smg',     shootRange:190, color:'#e67e22', w:22, h:38, coinValue:1 },
+  tank:    { hpBase:80, hpPerLevel:10, speedBase:0.7, speedPerLevel:0.02, damage:16, weapon:'shotgun', shootRange:160, color:'#7f8c8d', w:36, h:52, coinValue:5 },
+  shooter: { hpBase:22, hpPerLevel:5,  speedBase:0.9, speedPerLevel:0.02, damage:14, weapon:'sniper',  shootRange:480, color:'#9b59b6', w:26, h:42, coinValue:3 }
 };
 
 // ---------- Data: biomes (10 worlds x 10 levels = 100) ----------
@@ -537,7 +537,7 @@ function spawnEnemy() {
   enemies.push({
     type, x:ex, y:GROUND_Y, w:def.w, h:def.h, speed:def.speedBase + def.speedPerLevel * cfg.level,
     health:hp, maxHealth:hp, damage:def.damage, color:def.color,
-    weaponName:gunDef.name, weaponId:def.weapon, gunColor:gunDef.color, shootRange:def.shootRange,
+    weaponName:gunDef.name, weaponId:def.weapon, gunColor:gunDef.color, shootRange:def.shootRange, coinValue:def.coinValue,
     shootCooldown:Math.max(24, Math.round(gunDef.cooldown * 3)), shootTimer:Math.random() * 40,
     projSpeed:gunDef.bulletSpeed * 0.7, shootFlash:0
   });
@@ -789,7 +789,10 @@ function update() {
       en.dead = true;
       spawnParticles(en.x, en.y - en.h / 2, '#e74c3c');
       runScore += 10;
-      spawnCoinDrop(en.x, en.y, 2);
+      const totalCoinValue = Math.max(1, Math.round(en.coinValue * (1 + currentLevelConfig.level * 0.03)));
+      const dropCount = en.coinValue >= 5 ? 3 : en.coinValue >= 3 ? 2 : 1;
+      const perCoin = Math.max(1, Math.round(totalCoinValue / dropCount));
+      for (let ci = 0; ci < dropCount; ci++) spawnCoinDrop(en.x, en.y, perCoin);
       sfxKill();
       screenShake = Math.max(screenShake, 3);
       killStreak++; killStreakTimer = 90;
@@ -803,7 +806,9 @@ function update() {
     bossRef.dead = true;
     explode(bossRef.x, bossRef.y - bossRef.h / 2, 140, 0, '#f1c40f');
     runScore += 200;
-    for (let i = 0; i < 6; i++) spawnCoinDrop(bossRef.x, bossRef.y, 10);
+    const bossTotal = 50 + currentLevelConfig.level * 3;
+    const bossPerCoin = Math.max(1, Math.round(bossTotal / 6));
+    for (let i = 0; i < 6; i++) spawnCoinDrop(bossRef.x, bossRef.y, bossPerCoin);
     document.getElementById('bossBarWrap').style.display = 'none';
     popups = [{ text:'BOSS DOWN!', life:70, maxLife:70, size:56, color:'#f1c40f' }];
     bossRef = null;
