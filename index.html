@@ -203,7 +203,10 @@ const GUNS = [
   { id:'rocket',  name:'Rocket',        key:'6', cost:220, damage:55, cooldown:50, bulletSpeed:12, pellets:1, spread:0,    bulletLife:90, color:'#ff5533', kind:'rocket', splash:70, magSize:1, reloadTime:110 },
   { id:'grenade', name:'Grenade',       key:'7', cost:260, damage:65, cooldown:55, bulletSpeed:11, pellets:1, spread:0,    bulletLife:60, color:'#7cb342', kind:'grenade', splash:80, magSize:3, reloadTime:90 },
   { id:'laser',   name:'Laser',         key:'8', cost:320, damage:1.5,cooldown:1,  bulletSpeed:0,  pellets:1, spread:0,    bulletLife:0,  color:'#00e5ff', kind:'beam', range:600 },
-  { id:'frost',   name:'Frost Blaster', key:'9', cost:380, damage:14, cooldown:14, bulletSpeed:16, pellets:1, spread:0.03, bulletLife:62, color:'#74c0fc', kind:'bullet', slow:true, magSize:16, reloadTime:70 }
+  { id:'frost',   name:'Frost Blaster', key:'9', cost:380, damage:14, cooldown:14, bulletSpeed:16, pellets:1, spread:0.03, bulletLife:62, color:'#74c0fc', kind:'bullet', slow:true, magSize:16, reloadTime:70 },
+  { id:'rpg',     name:'RPG',           key:'0', cost:520, damage:130, cooldown:85, bulletSpeed:14, pellets:1, spread:0,    bulletLife:110, color:'#ff8a3d', kind:'rocket', splash:140, magSize:1, reloadTime:150 },
+  { id:'rail',    name:'Railgun',       key:'-', cost:450, damage:90, cooldown:60, bulletSpeed:34, pellets:1, spread:0,    bulletLife:38, color:'#a5f3fc', kind:'bullet', pierce:true, magSize:4, reloadTime:110 },
+  { id:'flame',   name:'Flamethrower',  key:'=', cost:300, damage:4,  cooldown:2,  bulletSpeed:9,  pellets:1, spread:0.24, bulletLife:22, color:'#ff7a1a', kind:'bullet', burn:true, magSize:60, reloadTime:100 }
 ];
 function currentGun() { return GUNS.find(g => g.id === currentGunId); }
 
@@ -323,6 +326,9 @@ function sfxShoot(kind) {
   else if (kind === 'rocket') { tone(180, 0.25, 'sawtooth', 0.15, 40); }
   else if (kind === 'grenade') { tone(300, 0.08, 'sine', 0.08, 150); }
   else if (kind === 'beam') { tone(900, 0.04, 'sine', 0.04, 700); }
+  else if (kind === 'rail') { tone(200, 0.16, 'sawtooth', 0.12, 2200); noiseHit(0.05, 0.1); }
+  else if (kind === 'flame') { noiseHit(0.06, 0.07); }
+  else if (kind === 'rpg') { noiseHit(0.2, 0.2); tone(140, 0.4, 'sawtooth', 0.16, 35); }
   else if (kind === 'frost') { tone(1300, 0.09, 'sine', 0.08, 700); tone(1900, 0.05, 'triangle', 0.04, 1200); }
   else { tone(700, 0.05, 'square', 0.08, 300); }
 }
@@ -499,7 +505,7 @@ function shoot() {
     ammo.mag--;
   }
   muzzleFlashTimer = 4;
-  sfxShoot(gun.slow ? 'frost' : gun.kind);
+  sfxShoot(gun.slow ? 'frost' : gun.pierce ? 'rail' : gun.burn ? 'flame' : gun.id === 'rpg' ? 'rpg' : gun.kind);
   for (let i = 0; i < gun.pellets; i++) {
     const spreadAngle = gun.pellets === 1 ? 0 : (i - (gun.pellets - 1) / 2) * (gun.spread / (gun.pellets - 1));
     const wiggle = gun.spread > 0 && gun.pellets === 1 ? (Math.random() - 0.5) * gun.spread : 0;
@@ -507,7 +513,7 @@ function shoot() {
     bullets.push({
       x: player.x + player.facing * player.w * 0.6, y: player.y - player.h * 0.6,
       vx: player.facing * gun.bulletSpeed * Math.cos(angle), vy: gun.bulletSpeed * Math.sin(angle),
-      life: gun.bulletLife, damage: gun.damage, color: gun.color, kind: gun.kind, splash: gun.splash || 0, slow: !!gun.slow
+      life: gun.bulletLife, damage: gun.damage, color: gun.color, kind: gun.kind, splash: gun.splash || 0, slow: !!gun.slow, pierce: !!gun.pierce, burn: !!gun.burn
     });
   }
 }
@@ -750,6 +756,7 @@ function update() {
     if (en.shootFlash > 0) en.shootFlash--;
     const dir = player.x > en.x ? 1 : -1;
     const dist = Math.abs(player.x - en.x);
+    if (en.burnTimer > 0) { en.burnTimer--; en.health -= 0.35; if (frameCount % 6 === 0) spawnParticles(en.x, en.y - en.h * 0.6, '#ff7a1a'); }
     const slowed = en.slowTimer > 0;
     if (slowed) en.slowTimer--;
     const spd = slowed ? en.speed * 0.4 : en.speed;
@@ -772,6 +779,7 @@ function update() {
     const dist = Math.abs(player.x - bossRef.x);
     bossRef.attackCooldown--;
     if (bossRef.slowTimer > 0) bossRef.slowTimer--;
+    if (bossRef.burnTimer > 0) { bossRef.burnTimer--; bossRef.health -= 0.35; }
     if (dist > 90) bossRef.x += dir * bossRef.speed * (bossRef.slowTimer > 0 ? 0.5 : 1);
     if (dist <= 90) {
       const pRect = { left:player.x - player.w / 2, right:player.x + player.w / 2, top:player.y - player.h, bottom:player.y };
@@ -787,20 +795,29 @@ function update() {
     let hit = false;
     enemies.forEach(en => {
       if (hit || en.health <= 0) return;
+      if (b.pierce && b.hits && b.hits.includes(en)) return;
       const eRect = { left:en.x - en.w / 2, right:en.x + en.w / 2, top:en.y - en.h, bottom:en.y };
       if (b.x > eRect.left && b.x < eRect.right && b.y > eRect.top && b.y < eRect.bottom) {
-        hit = true;
         if (b.kind === 'rocket' || b.kind === 'grenade') explode(b.x, b.y, b.splash, b.damage, b.color);
-        else { en.health -= b.damage; if (b.slow) en.slowTimer = 180; }
-        b.life = 0;
+        else {
+          en.health -= b.damage;
+          if (b.slow) en.slowTimer = 180;
+          if (b.burn) en.burnTimer = 150;
+        }
+        if (b.pierce) { (b.hits = b.hits || []).push(en); }
+        else { hit = true; b.life = 0; }
       }
     });
-    if (!hit && bossRef && !bossRef.dead) {
+    if (!hit && bossRef && !bossRef.dead && !b.bossHit) {
       const br = { left:bossRef.x - bossRef.w / 2, right:bossRef.x + bossRef.w / 2, top:bossRef.y - bossRef.h, bottom:bossRef.y };
       if (b.x > br.left && b.x < br.right && b.y > br.top && b.y < br.bottom) {
         if (b.kind === 'rocket' || b.kind === 'grenade') explode(b.x, b.y, b.splash, b.damage, b.color);
-        else { bossRef.health -= b.damage; if (b.slow) bossRef.slowTimer = 180; }
-        b.life = 0;
+        else {
+          bossRef.health -= b.damage;
+          if (b.slow) bossRef.slowTimer = 180;
+          if (b.burn) bossRef.burnTimer = 150;
+        }
+        if (b.pierce) b.bossHit = true; else b.life = 0;
       }
     }
   });
@@ -1127,6 +1144,26 @@ function drawWeaponShape(id, s, w, h, facing, gunColor, gunLen) {
   } else if (id === 'grenade') {
     rectBetween(0.1, 0.9, handY - h * 0.08, h * 0.16, gunColor);
     rectBetween(0, 0.15, handY - h * 0.06, h * 0.12, dark);
+  } else if (id === 'rpg') {
+    rectBetween(-0.05, 0.85, handY - h * 0.055, h * 0.11, gunColor);
+    rectBetween(0.1, 0.3, handY - h * 0.09, h * 0.04, dark);
+    ctx.fillStyle = dark;
+    ctx.beginPath();
+    ctx.moveTo(px(0.85), handY - h * 0.1);
+    ctx.lineTo(px(1.15), handY);
+    ctx.lineTo(px(0.85), handY + h * 0.1);
+    ctx.closePath(); ctx.fill();
+  } else if (id === 'rail') {
+    rectBetween(0, 1.05, handY - h * 0.025, h * 0.05, gunColor);
+    rectBetween(0.2, 0.75, handY - h * 0.06, h * 0.03, dark);
+    rectBetween(0.2, 0.75, handY + h * 0.03, h * 0.03, dark);
+    ctx.fillStyle = light;
+    ctx.beginPath(); ctx.arc(px(0.5), handY, h * 0.035, 0, Math.PI * 2); ctx.fill();
+  } else if (id === 'flame') {
+    rectBetween(0, 0.8, handY - h * 0.04, h * 0.08, gunColor);
+    rectBetween(0.05, 0.3, handY + h * 0.03, h * 0.11, dark);
+    ctx.fillStyle = light;
+    ctx.beginPath(); ctx.arc(px(0.85), handY, h * 0.03, 0, Math.PI * 2); ctx.fill();
   } else if (id === 'frost') {
     rectBetween(0, 0.9, handY - h * 0.045, h * 0.09, gunColor);
     rectBetween(0.25, 0.4, handY - h * 0.08, h * 0.035, dark);
@@ -1262,7 +1299,10 @@ function draw() {
   bullets.forEach(b => {
     const s = worldToScreen(b.x, b.y);
     ctx.fillStyle = b.color || '#f1c40f';
-    ctx.fillRect(s.x - 5*zoom, s.y - 2*zoom, 10*zoom, 4*zoom);
+    if (b.pierce) ctx.fillRect(s.x - 16*zoom, s.y - 1.5*zoom, 32*zoom, 3*zoom);
+    else if (b.kind === 'rocket') { ctx.fillRect(s.x - 8*zoom, s.y - 3*zoom, 16*zoom, 6*zoom); ctx.fillStyle = 'rgba(255,200,80,0.7)'; ctx.fillRect(s.x - 8*zoom * (b.vx > 0 ? 2 : -0.2), s.y - 2*zoom, 10*zoom, 4*zoom); }
+    else if (b.burn) { ctx.beginPath(); ctx.arc(s.x, s.y, (3 + Math.random() * 3) * zoom, 0, Math.PI * 2); ctx.fill(); }
+    else ctx.fillRect(s.x - 5*zoom, s.y - 2*zoom, 10*zoom, 4*zoom);
   });
 
   enemyProjectiles.forEach(p => {
@@ -1275,7 +1315,7 @@ function draw() {
     const s = worldToScreen(en.x, en.y);
     const facing = player.x > en.x ? 1 : -1;
     const legSwing = Math.sin((frameCount + en.x) * 0.25) * 0.4;
-    const bodyC = en.slowTimer > 0 ? '#8ecae6' : en.color;
+    const bodyC = en.burnTimer > 0 ? '#ff9f43' : en.slowTimer > 0 ? '#8ecae6' : en.color;
     drawCharacter(s, en.w*zoom, en.h*zoom, facing, bodyC, shade(bodyC, -40), { legSwing, gunColor:en.gunColor, weaponId:en.weaponId, muzzleFlash: en.shootFlash > 0 });
     const barW = 34*zoom;
     const hpPct = en.health / en.maxHealth;
