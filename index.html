@@ -202,7 +202,8 @@ const GUNS = [
   { id:'sniper',  name:'Sniper',        key:'5', cost:150, damage:70, cooldown:45, bulletSpeed:30, pellets:1, spread:0,    bulletLife:70, color:'#1abc9c', kind:'bullet', magSize:5,  reloadTime:95 },
   { id:'rocket',  name:'Rocket',        key:'6', cost:220, damage:55, cooldown:50, bulletSpeed:12, pellets:1, spread:0,    bulletLife:90, color:'#ff5533', kind:'rocket', splash:70, magSize:1, reloadTime:110 },
   { id:'grenade', name:'Grenade',       key:'7', cost:260, damage:65, cooldown:55, bulletSpeed:11, pellets:1, spread:0,    bulletLife:60, color:'#7cb342', kind:'grenade', splash:80, magSize:3, reloadTime:90 },
-  { id:'laser',   name:'Laser',         key:'8', cost:320, damage:1.5,cooldown:1,  bulletSpeed:0,  pellets:1, spread:0,    bulletLife:0,  color:'#00e5ff', kind:'beam', range:600 }
+  { id:'laser',   name:'Laser',         key:'8', cost:320, damage:1.5,cooldown:1,  bulletSpeed:0,  pellets:1, spread:0,    bulletLife:0,  color:'#00e5ff', kind:'beam', range:600 },
+  { id:'frost',   name:'Frost Blaster', key:'9', cost:380, damage:14, cooldown:14, bulletSpeed:16, pellets:1, spread:0.03, bulletLife:62, color:'#74c0fc', kind:'bullet', slow:true, magSize:16, reloadTime:70 }
 ];
 function currentGun() { return GUNS.find(g => g.id === currentGunId); }
 
@@ -310,6 +311,7 @@ function sfxShoot(kind) {
   else if (kind === 'rocket') { tone(180, 0.25, 'sawtooth', 0.15, 40); }
   else if (kind === 'grenade') { tone(300, 0.08, 'sine', 0.08, 150); }
   else if (kind === 'beam') { tone(900, 0.04, 'sine', 0.04, 700); }
+  else if (kind === 'frost') { tone(1300, 0.09, 'sine', 0.08, 700); tone(1900, 0.05, 'triangle', 0.04, 1200); }
   else { tone(700, 0.05, 'square', 0.08, 300); }
 }
 function sfxExplosion() { noiseHit(0.35, 0.28); tone(90, 0.35, 'sawtooth', 0.2, 30); }
@@ -485,7 +487,7 @@ function shoot() {
     ammo.mag--;
   }
   muzzleFlashTimer = 4;
-  sfxShoot(gun.kind);
+  sfxShoot(gun.slow ? 'frost' : gun.kind);
   for (let i = 0; i < gun.pellets; i++) {
     const spreadAngle = gun.pellets === 1 ? 0 : (i - (gun.pellets - 1) / 2) * (gun.spread / (gun.pellets - 1));
     const wiggle = gun.spread > 0 && gun.pellets === 1 ? (Math.random() - 0.5) * gun.spread : 0;
@@ -493,7 +495,7 @@ function shoot() {
     bullets.push({
       x: player.x + player.facing * player.w * 0.6, y: player.y - player.h * 0.6,
       vx: player.facing * gun.bulletSpeed * Math.cos(angle), vy: gun.bulletSpeed * Math.sin(angle),
-      life: gun.bulletLife, damage: gun.damage, color: gun.color, kind: gun.kind, splash: gun.splash || 0
+      life: gun.bulletLife, damage: gun.damage, color: gun.color, kind: gun.kind, splash: gun.splash || 0, slow: !!gun.slow
     });
   }
 }
@@ -700,9 +702,12 @@ function update() {
     if (en.shootFlash > 0) en.shootFlash--;
     const dir = player.x > en.x ? 1 : -1;
     const dist = Math.abs(player.x - en.x);
-    if (dist > en.shootRange) en.x += dir * en.speed;
-    else if (dist < en.shootRange * 0.35) en.x -= dir * en.speed * 0.6;
-    en.shootTimer--;
+    const slowed = en.slowTimer > 0;
+    if (slowed) en.slowTimer--;
+    const spd = slowed ? en.speed * 0.4 : en.speed;
+    if (dist > en.shootRange) en.x += dir * spd;
+    else if (dist < en.shootRange * 0.35) en.x -= dir * spd * 0.6;
+    en.shootTimer -= slowed ? 0.5 : 1;
     if (en.shootTimer <= 0 && dist <= en.shootRange) {
       enemyProjectiles.push({ x:en.x, y:en.y - en.h * 0.6, vx:dir * en.projSpeed, vy:0, life:130, damage:en.damage, color:en.gunColor });
       en.shootTimer = en.shootCooldown;
@@ -718,7 +723,8 @@ function update() {
     const dir = player.x > bossRef.x ? 1 : -1;
     const dist = Math.abs(player.x - bossRef.x);
     bossRef.attackCooldown--;
-    if (dist > 90) bossRef.x += dir * bossRef.speed;
+    if (bossRef.slowTimer > 0) bossRef.slowTimer--;
+    if (dist > 90) bossRef.x += dir * bossRef.speed * (bossRef.slowTimer > 0 ? 0.5 : 1);
     if (dist <= 90) {
       const pRect = { left:player.x - player.w / 2, right:player.x + player.w / 2, top:player.y - player.h, bottom:player.y };
       const bRect = { left:bossRef.x - bossRef.w / 2, right:bossRef.x + bossRef.w / 2, top:bossRef.y - bossRef.h, bottom:bossRef.y };
@@ -740,7 +746,7 @@ function update() {
       if (b.x > eRect.left && b.x < eRect.right && b.y > eRect.top && b.y < eRect.bottom) {
         hit = true;
         if (b.kind === 'rocket' || b.kind === 'grenade') explode(b.x, b.y, b.splash, b.damage, b.color);
-        else en.health -= b.damage;
+        else { en.health -= b.damage; if (b.slow) en.slowTimer = 180; }
         b.life = 0;
       }
     });
@@ -748,7 +754,7 @@ function update() {
       const br = { left:bossRef.x - bossRef.w / 2, right:bossRef.x + bossRef.w / 2, top:bossRef.y - bossRef.h, bottom:bossRef.y };
       if (b.x > br.left && b.x < br.right && b.y > br.top && b.y < br.bottom) {
         if (b.kind === 'rocket' || b.kind === 'grenade') explode(b.x, b.y, b.splash, b.damage, b.color);
-        else bossRef.health -= b.damage;
+        else { bossRef.health -= b.damage; if (b.slow) bossRef.slowTimer = 180; }
         b.life = 0;
       }
     }
@@ -974,6 +980,15 @@ function drawWeaponShape(id, s, w, h, facing, gunColor, gunLen) {
   } else if (id === 'grenade') {
     rectBetween(0.1, 0.9, handY - h * 0.08, h * 0.16, gunColor);
     rectBetween(0, 0.15, handY - h * 0.06, h * 0.12, dark);
+  } else if (id === 'frost') {
+    rectBetween(0, 0.9, handY - h * 0.045, h * 0.09, gunColor);
+    rectBetween(0.25, 0.4, handY - h * 0.08, h * 0.035, dark);
+    ctx.fillStyle = light;
+    ctx.beginPath();
+    ctx.moveTo(px(0.9), handY - h * 0.07);
+    ctx.lineTo(px(1.08), handY);
+    ctx.lineTo(px(0.9), handY + h * 0.07);
+    ctx.closePath(); ctx.fill();
   } else if (id === 'laser') {
     rectBetween(0, 0.85, handY - h * 0.025, h * 0.045, gunColor);
     ctx.fillStyle = light;
@@ -1113,7 +1128,8 @@ function draw() {
     const s = worldToScreen(en.x, en.y);
     const facing = player.x > en.x ? 1 : -1;
     const legSwing = Math.sin((frameCount + en.x) * 0.25) * 0.4;
-    drawCharacter(s, en.w*zoom, en.h*zoom, facing, en.color, shade(en.color, -40), { legSwing, gunColor:en.gunColor, weaponId:en.weaponId, muzzleFlash: en.shootFlash > 0 });
+    const bodyC = en.slowTimer > 0 ? '#8ecae6' : en.color;
+    drawCharacter(s, en.w*zoom, en.h*zoom, facing, bodyC, shade(bodyC, -40), { legSwing, gunColor:en.gunColor, weaponId:en.weaponId, muzzleFlash: en.shootFlash > 0 });
     const barW = 34*zoom;
     const hpPct = en.health / en.maxHealth;
     ctx.fillStyle = '#222'; ctx.fillRect(s.x - barW/2, s.y - en.h*zoom - 14*zoom, barW, 5*zoom);
