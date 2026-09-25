@@ -539,7 +539,7 @@ function spawnEnemy() {
     health:hp, maxHealth:hp, damage:def.damage, color:def.color,
     weaponName:gunDef.name, weaponId:def.weapon, gunColor:gunDef.color, shootRange:def.shootRange, coinValue:def.coinValue,
     shootCooldown:Math.max(24, Math.round(gunDef.cooldown * 3)), shootTimer:Math.random() * 40,
-    projSpeed:gunDef.bulletSpeed * 0.7, shootFlash:0
+    projSpeed:gunDef.bulletSpeed * 0.5, shootFlash:0
   });
 }
 function spawnSquad() {
@@ -1277,7 +1277,7 @@ function processVersusMessage(data) {
     const p = others.get(fromId); if (!p) return;
     p.x = data.x; p.y = data.y; p.vx = data.vx; p.facing = data.facing; p.health = data.health; p.dead = data.dead; p.onGround = data.onGround;
   } else if (data.type === 'shoot') {
-    versusBullets.push({ x:data.x, y:data.y, vx: data.facing * 17, vy:0, life:55, damage:18, ownerId: fromId, ownerTeam: data.team });
+    versusBullets.push({ x:data.x, y:data.y, vx: data.facing * 10, vy:0, life:94, damage:18, ownerId: fromId, ownerTeam: data.team });
   } else if (data.type === 'kill') {
     if (data.killer === myId) { localV.kills++; sfxKill(); }
     else { const p = others.get(data.killer); if (p) p.kills++; }
@@ -1401,7 +1401,7 @@ function versusUpdate() {
     if (mouse.down && fireCooldown <= 0) {
       fireCooldown = 12;
       const bx = localV.x + localV.facing * 20, by = localV.y - 28;
-      versusBullets.push({ x:bx, y:by, vx: localV.facing * 17, vy:0, life:55, damage:18, ownerId: myId, ownerTeam: localV.team });
+      versusBullets.push({ x:bx, y:by, vx: localV.facing * 10, vy:0, life:94, damage:18, ownerId: myId, ownerTeam: localV.team });
       netBroadcast({ type:'shoot', from: myId, x:bx, y:by, facing: localV.facing, team: localV.team });
       sfxShoot('bullet');
     }
