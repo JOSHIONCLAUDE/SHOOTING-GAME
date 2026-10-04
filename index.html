@@ -59,6 +59,36 @@
   <input type="text" id="nameInput" maxlength="14" placeholder="Your name">
   <br>
   <button class="btn" id="createProfileBtn">Start Playing</button>
+  <div class="acctOnly" style="margin-top:16px;">
+    <div style="color:#aaa;margin-bottom:6px;">— or save your progress online —</div>
+    <button class="btn secondary" id="openAuthBtn">🔐 Sign in / Create account</button>
+  </div>
+</div>
+
+<div id="authScreen" class="overlay" style="display:none">
+  <h1>Account</h1>
+  <div id="authForms">
+    <div style="margin-bottom:12px;">
+      <button class="btn" id="tabSignIn">Sign in</button>
+      <button class="btn secondary" id="tabSignUp">Create account</button>
+    </div>
+    <input type="text" id="authName" maxlength="14" placeholder="Player name" style="display:none;margin-bottom:8px;"><br>
+    <input type="email" id="authEmail" maxlength="100" placeholder="Email" autocomplete="email" style="margin-bottom:8px;"><br>
+    <input type="password" id="authPass" maxlength="100" placeholder="Password (8+ characters)" autocomplete="current-password" style="width:250px;padding:10px;font-size:16px;border-radius:6px;border:none;text-align:center;"><br>
+    <button class="btn" id="authSubmitBtn" style="margin-top:12px;">Sign in</button><br>
+    <button class="btn secondary" id="forgotBtn" style="font-size:13px;padding:6px 14px;">Forgot password?</button>
+    <div style="color:#aaa;margin:12px 0 6px;">— or —</div>
+    <button class="btn" id="googleBtn" style="background:#fff;color:#222;">Continue with Google</button><br>
+    <button class="btn" id="appleBtn" style="background:#000;color:#fff;border:1px solid #555;display:none;"> Continue with Apple</button>
+  </div>
+  <div id="verifyBox" style="display:none;max-width:420px;">
+    <p>We sent a link to <b id="verifyEmail"></b>. Open your email and click it, then come back here.</p>
+    <button class="btn" id="verifiedBtn">I've verified my email</button>
+    <button class="btn secondary" id="resendBtn">Resend email</button>
+    <button class="btn secondary" id="verifySignOutBtn">Sign out</button>
+  </div>
+  <p id="authMsg" style="min-height:24px;max-width:420px;color:#f1c40f;"></p>
+  <button class="btn secondary" id="authBackBtn">Back</button>
 </div>
 
 <div id="mainMenu" class="overlay" style="display:none">
@@ -70,6 +100,11 @@
   <button class="btn secondary" id="versusBtn">⚔ 1v1 Online</button>
   <button class="btn secondary" id="gfxBtn">Graphics: 3D</button>
   <button class="btn secondary" id="resetBtn" style="background:#7f1d1d">Reset Progress</button>
+  <div class="acctOnly" style="margin-top:14px;color:#aaa;font-size:14px;">
+    <span id="acctStatus">Playing offline</span>
+    <button class="btn secondary" id="menuAuthBtn" style="font-size:13px;padding:6px 14px;">Sign in</button>
+    <button class="btn secondary" id="signOutBtn" style="font-size:13px;padding:6px 14px;display:none;">Sign out</button>
+  </div>
 </div>
 
 <div id="versusMenuScreen" class="overlay" style="display:none">
@@ -137,10 +172,10 @@
   <div>Health</div>
   <div id="healthBarBg"><div id="healthBarFill"></div></div>
   <div id="enemyCount">Enemies: 0</div>
-  <div style="margin-top:6px;">Shield <span id="shieldPct">100%</span> [Hold K]</div>
+  <div style="margin-top:6px;">Shield <span id="shieldPct">100%</span> [Hold Q]</div>
   <div id="shieldBarBg"><div id="shieldBarFill"></div></div>
   <div id="ammoDisplay" style="margin-top:6px; font-weight:bold;">Ammo: 12/12</div>
-  <div id="medkitDisplay" style="margin-top:4px;">Medkits: 1 [J to heal]</div>
+  <div id="medkitDisplay" style="margin-top:4px;">Medkits: 1 [F to heal]</div>
   <div id="weaponBar" style="margin-top:8px; display:flex; gap:6px; flex-wrap:wrap; max-width:320px;"></div>
 </div>
 <div id="topRightHud" style="display:none">
@@ -158,6 +193,9 @@
 <div id="versusLeaderboard" style="display:none; position:absolute; top:10px; right:10px; color:#fff; text-shadow:1px 1px 2px #000; z-index:5; text-align:right; font-size:13px; max-width:220px;"></div>
 <button id="versusLeaveBtn" style="display:none; position:absolute; bottom:10px; right:10px; z-index:5; padding:8px 16px; background:#7f1d1d; color:#fff; border:none; border-radius:6px; cursor:pointer;">Leave Match</button>
 
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.2/dist/peerjs.min.js"></script>
 <script>
@@ -190,7 +228,7 @@ function loadProfile() {
   } catch (e) {}
   return null;
 }
-function saveProfile() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(profile)); } catch (e) {} }
+function saveProfile() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(profile)); } catch (e) {} if (typeof cloudSaveSoon === 'function') cloudSaveSoon(); }
 function defaultProfile(name) {
   return { name, coins:0, unlockedLevel:1, completedLevels:[], ownedWeapons:['pistol'], upgrades:{vest:0,boots:0,medkit:0}, totalScore:0 };
 }
@@ -356,7 +394,7 @@ const stars = Array.from({ length: 60 }, () => ({
 // ---------- Screen management ----------
 function showScreen(id) {
   if (id && document.pointerLockElement && document.exitPointerLock) document.exitPointerLock();
-  ['profileScreen','mainMenu','levelSelectScreen','armoryScreen','pauseOverlay','levelCompleteScreen','gameOverScreen','versusMenuScreen','versusTeamPickScreen'].forEach(s => {
+  ['profileScreen','authScreen','mainMenu','levelSelectScreen','armoryScreen','pauseOverlay','levelCompleteScreen','gameOverScreen','versusMenuScreen','versusTeamPickScreen'].forEach(s => {
     document.getElementById(s).style.display = (s === id) ? 'flex' : 'none';
   });
 }
@@ -371,6 +409,7 @@ function showMainMenu() {
   document.getElementById('versusLeaveBtn').style.display = 'none';
   document.getElementById('welcomeText').textContent = 'Welcome, ' + profile.name + '!';
   document.getElementById('menuStats').textContent = '💰 ' + profile.coins + ' coins   •   Levels cleared: ' + profile.completedLevels.length + '/100';
+  if (typeof updateAcctUi === 'function') updateAcctUi();
   showScreen('mainMenu');
 }
 function buildLevelGrid() {
@@ -435,7 +474,7 @@ function switchGun(id) { if (profile.ownedWeapons.includes(id)) { currentGunId =
 
 // ---------- Input ----------
 window.addEventListener('keydown', e => {
-  if (e.key === ' ' || (running && ['a', 'd', 'w', 'k', 'r', 'j'].includes(e.key.toLowerCase()))) e.preventDefault();
+  if (e.key === ' ' || (running && ['a', 'd', 'w', 'q', 'r', 'f'].includes(e.key.toLowerCase()))) e.preventDefault();
   keys[e.key.toLowerCase()] = true;
   if (e.key === 'Shift') zoom = ZOOM_LEVEL;
   if ((e.key === ' ' || e.key.toLowerCase() === 'w') && running && !paused) jumpQueued = true;
@@ -451,7 +490,7 @@ window.addEventListener('keydown', e => {
     const ammo = ammoState[gun.id];
     if (ammo && !ammo.reloading && ammo.mag < gun.magSize) { ammo.reloading = true; ammo.reloadTimer = gun.reloadTime; sfxReloadStart(); }
   }
-  if (e.key.toLowerCase() === 'j' && !e.repeat && running && !paused) {
+  if (e.key.toLowerCase() === 'f' && !e.repeat && running && !paused) {
     if (player.medkits > 0 && player.medkitCooldown <= 0 && player.health < player.maxHealth) {
       player.medkits--;
       player.medkitCooldown = 90;
@@ -708,7 +747,7 @@ function update() {
   damageFlash *= 0.9; if (damageFlash < 0.02) damageFlash = 0;
   screenShake *= 0.85; if (screenShake < 0.5) screenShake = 0;
 
-  if (keys['k'] && player.shieldMeter > 0) {
+  if (keys['q'] && player.shieldMeter > 0) {
     if (!player.shieldActive) sfxShield();
     player.shieldActive = true;
     player.shieldMeter -= 1.2;
@@ -922,7 +961,7 @@ function update() {
   document.getElementById('shieldBarFill').style.width = player.shieldMeter + '%';
   document.getElementById('shieldPct').textContent = Math.round(player.shieldMeter) + '%';
   const medkitEl = document.getElementById('medkitDisplay');
-  medkitEl.textContent = 'Medkits: ' + player.medkits + (player.medkitCooldown > 0 ? ' (ready in ' + Math.ceil(player.medkitCooldown / 60) + 's)' : ' [J to heal]');
+  medkitEl.textContent = 'Medkits: ' + player.medkits + (player.medkitCooldown > 0 ? ' (ready in ' + Math.ceil(player.medkitCooldown / 60) + 's)' : ' [F to heal]');
   medkitEl.style.color = player.medkits > 0 ? '#2ecc71' : '#888';
   document.getElementById('enemyCount').textContent = 'Enemies: ' + (enemies.length + enemiesLeftInWave) + (currentLevelConfig.isBoss ? ' (BOSS)' : '');
   document.getElementById('coinsHud').textContent = (profile.coins + coinsThisRun);
@@ -2222,6 +2261,187 @@ init3D();
   if (!R3) { const gb = document.getElementById('gfxBtn'); gb.textContent = 'Graphics: 2D (3D not supported here)'; gb.disabled = true; }
   document.getElementById('gfxBtn').onclick = () => { if (R3) setGraphics(!use3D); };
 }
+
+// ---------- Online accounts (Firebase: Google, Apple, email + password) ----------
+// Paste the firebaseConfig object from the Firebase console here. Leave it empty to play offline only.
+const FIREBASE_CONFIG = {};
+// Apple sign-in needs a paid Apple Developer account set up in Firebase first; flip this to true after that.
+const APPLE_SIGNIN_ENABLED = false;
+
+let fbAuth = null, fbDb = null, fbUser = null, authMode = 'in', cloudTimer = null, cloudReady = false;
+const $id = id => document.getElementById(id);
+function authMsg(t, ok) { const m = $id('authMsg'); m.textContent = t || ''; m.style.color = ok ? '#2ecc71' : '#f1c40f'; }
+function trustedUser(u) {
+  if (!u) return false;
+  return u.emailVerified || u.providerData.some(p => p.providerId === 'google.com' || p.providerId === 'apple.com');
+}
+function friendlyAuthError(e) {
+  const c = (e && e.code) || '';
+  if (c.includes('invalid-credential') || c.includes('wrong-password') || c.includes('user-not-found') || c.includes('invalid-login')) return 'Wrong email or password.';
+  if (c.includes('email-already-in-use')) return 'That email already has an account. Try signing in.';
+  if (c.includes('invalid-email')) return 'That email address doesn’t look right.';
+  if (c.includes('weak-password')) return 'Password is too weak. Use at least 8 characters.';
+  if (c.includes('too-many-requests')) return 'Too many tries. Wait a few minutes and try again.';
+  if (c.includes('popup-closed') || c.includes('cancelled-popup')) return 'Sign-in window was closed.';
+  if (c.includes('network')) return 'No internet connection.';
+  if (c.includes('unauthorized-domain')) return 'This website isn’t allowed yet. Add it under Authentication → Settings → Authorized domains.';
+  if (c.includes('operation-not-allowed')) return 'This sign-in method isn’t turned on in Firebase yet.';
+  return 'Something went wrong. Please try again.';
+}
+function cleanProfile(p) {
+  const int = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.floor(Number(v) || 0)));
+  return {
+    name: String(p.name || 'Player').slice(0, 14),
+    coins: int(p.coins, 0, 10000000),
+    unlockedLevel: int(p.unlockedLevel, 1, 100),
+    completedLevels: (p.completedLevels || []).map(n => int(n, 1, 100)).filter((n, i, a) => a.indexOf(n) === i).slice(0, 100),
+    ownedWeapons: (p.ownedWeapons || ['pistol']).filter(w => GUNS.some(g => g.id === w)).slice(0, 20),
+    upgrades: { vest: int(p.upgrades && p.upgrades.vest, 0, 3), boots: int(p.upgrades && p.upgrades.boots, 0, 3), medkit: int(p.upgrades && p.upgrades.medkit, 0, 3) },
+    totalScore: int(p.totalScore, 0, 1000000000)
+  };
+}
+function cloudSaveSoon() {
+  if (!fbDb || !fbUser || !cloudReady || !trustedUser(fbUser) || !profile) return;
+  clearTimeout(cloudTimer);
+  cloudTimer = setTimeout(() => {
+    const data = cleanProfile(profile);
+    data.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
+    fbDb.collection('players').doc(fbUser.uid).set(data).catch(() => {});
+  }, 800);
+}
+async function loadCloudProfile(user) {
+  cloudReady = false;
+  try {
+    const ref = fbDb.collection('players').doc(user.uid);
+    const snap = await ref.get();
+    if (snap.exists) {
+      profile = cleanProfile(snap.data());
+    } else {
+      const name = user.displayName || (profile && profile.name) || 'Player';
+      profile = (profile && profile.name) ? cleanProfile(Object.assign({}, profile, { name: profile.name })) : cleanProfile(defaultProfile(name));
+      if (user.displayName && !profile.name) profile.name = user.displayName.slice(0, 14);
+    }
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify(profile)); } catch (e) {}
+    cloudReady = true;
+    if (!snap.exists) cloudSaveSoon();
+    return true;
+  } catch (e) { cloudReady = false; return false; }
+}
+function updateAcctUi() {
+  if (!fbAuth) return;
+  const signedIn = !!fbUser && trustedUser(fbUser);
+  $id('acctStatus').textContent = signedIn ? '☁ Saved online as ' + (fbUser.email || profile.name) : 'Playing offline (only on this computer)';
+  $id('menuAuthBtn').style.display = signedIn ? 'none' : 'inline-block';
+  $id('signOutBtn').style.display = signedIn ? 'inline-block' : 'none';
+}
+function setAuthMode(m) {
+  authMode = m;
+  $id('tabSignIn').className = 'btn' + (m === 'in' ? '' : ' secondary');
+  $id('tabSignUp').className = 'btn' + (m === 'up' ? '' : ' secondary');
+  $id('authName').style.display = m === 'up' ? 'inline-block' : 'none';
+  $id('authSubmitBtn').textContent = m === 'up' ? 'Create account' : 'Sign in';
+  $id('forgotBtn').style.display = m === 'in' ? 'inline-block' : 'none';
+  $id('authPass').autocomplete = m === 'up' ? 'new-password' : 'current-password';
+  authMsg('');
+}
+function openAuth() {
+  showScreen('authScreen');
+  const pending = fbUser && !trustedUser(fbUser);
+  $id('authForms').style.display = pending ? 'none' : 'block';
+  $id('verifyBox').style.display = pending ? 'block' : 'none';
+  if (pending) $id('verifyEmail').textContent = fbUser.email;
+  setAuthMode(authMode);
+  if (pending) authMsg('');
+}
+async function afterSignIn(user) {
+  if (!trustedUser(user)) { openAuth(); return; }
+  authMsg('Loading your save…', true);
+  const ok = await loadCloudProfile(user);
+  if (!ok) { authMsg('Signed in, but couldn’t load your save. Check your internet and try again.'); return; }
+  authMsg('');
+  showMainMenu();
+}
+async function socialSignIn(provider) {
+  authMsg('');
+  try { await fbAuth.signInWithPopup(provider); }
+  catch (e) {
+    const c = (e && e.code) || '';
+    if (c.includes('popup-blocked') || c.includes('operation-not-supported')) { try { await fbAuth.signInWithRedirect(provider); } catch (e2) { authMsg(friendlyAuthError(e2)); } }
+    else authMsg(friendlyAuthError(e));
+  }
+}
+function initAccounts() {
+  if (!FIREBASE_CONFIG.apiKey || typeof firebase === 'undefined') {
+    document.querySelectorAll('.acctOnly').forEach(el => el.style.display = 'none');
+    return;
+  }
+  try {
+    firebase.initializeApp(FIREBASE_CONFIG);
+    fbAuth = firebase.auth(); fbDb = firebase.firestore();
+    fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+  } catch (e) { fbAuth = null; document.querySelectorAll('.acctOnly').forEach(el => el.style.display = 'none'); return; }
+  if (APPLE_SIGNIN_ENABLED) $id('appleBtn').style.display = 'inline-block';
+  fbAuth.getRedirectResult().catch(e => authMsg(friendlyAuthError(e)));
+  fbAuth.onAuthStateChanged(user => {
+    fbUser = user;
+    if (user && trustedUser(user)) { if (!cloudReady) afterSignIn(user); }
+    else { cloudReady = false; }
+    updateAcctUi();
+  });
+
+  $id('openAuthBtn').onclick = openAuth;
+  $id('menuAuthBtn').onclick = openAuth;
+  $id('tabSignIn').onclick = () => setAuthMode('in');
+  $id('tabSignUp').onclick = () => setAuthMode('up');
+  $id('authBackBtn').onclick = () => { if (profile && profile.name) showMainMenu(); else showScreen('profileScreen'); };
+  $id('googleBtn').onclick = () => socialSignIn(new firebase.auth.GoogleAuthProvider());
+  $id('appleBtn').onclick = () => { const p = new firebase.auth.OAuthProvider('apple.com'); p.addScope('email'); p.addScope('name'); socialSignIn(p); };
+  $id('authSubmitBtn').onclick = async () => {
+    const email = $id('authEmail').value.trim(), pass = $id('authPass').value;
+    if (!email || !pass) { authMsg('Enter your email and password.'); return; }
+    if (authMode === 'up') {
+      const name = $id('authName').value.trim();
+      if (!name) { authMsg('Pick a player name.'); return; }
+      if (pass.length < 8) { authMsg('Password must be at least 8 characters.'); return; }
+      try {
+        const cred = await fbAuth.createUserWithEmailAndPassword(email, pass);
+        await cred.user.updateProfile({ displayName: name.slice(0, 14) });
+        await cred.user.sendEmailVerification();
+        $id('authPass').value = '';
+        openAuth();
+      } catch (e) { authMsg(friendlyAuthError(e)); }
+    } else {
+      try { const cred = await fbAuth.signInWithEmailAndPassword(email, pass); $id('authPass').value = ''; afterSignIn(cred.user); }
+      catch (e) { authMsg(friendlyAuthError(e)); }
+    }
+  };
+  $id('forgotBtn').onclick = async () => {
+    const email = $id('authEmail').value.trim();
+    if (!email) { authMsg('Type your email above first, then click Forgot password.'); return; }
+    try { await fbAuth.sendPasswordResetEmail(email); } catch (e) { if (!String(e.code).includes('user-not-found')) { authMsg(friendlyAuthError(e)); return; } }
+    authMsg('If that email has an account, a reset link is on its way.', true);
+  };
+  $id('verifiedBtn').onclick = async () => {
+    if (!fbUser) return;
+    try { await fbUser.reload(); await fbUser.getIdToken(true); } catch (e) { authMsg(friendlyAuthError(e)); return; }
+    fbUser = fbAuth.currentUser;
+    if (trustedUser(fbUser)) afterSignIn(fbUser); else authMsg('Not verified yet. Click the link in the email first.');
+  };
+  $id('resendBtn').onclick = async () => {
+    try { await fbUser.sendEmailVerification(); authMsg('Sent! Check your inbox and spam folder.', true); } catch (e) { authMsg(friendlyAuthError(e)); }
+  };
+  const doSignOut = async () => {
+    clearTimeout(cloudTimer);
+    await fbAuth.signOut();
+    cloudReady = false; fbUser = null; profile = null;
+    try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
+    $id('authForms').style.display = 'block'; $id('verifyBox').style.display = 'none';
+    showScreen('profileScreen');
+  };
+  $id('signOutBtn').onclick = doSignOut;
+  $id('verifySignOutBtn').onclick = doSignOut;
+}
+initAccounts();
 
 // ---------- Wiring ----------
 document.getElementById('createProfileBtn').onclick = () => {
