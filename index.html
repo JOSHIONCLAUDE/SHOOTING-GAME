@@ -2,9 +2,10 @@
 <html>
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Cursed Strikes</title>
 <style>
-  html, body { margin:0; padding:0; overflow:hidden; background:#000; font-family:'Segoe UI', Arial, sans-serif; }
+  html, body { margin:0; padding:0; overflow:hidden; background:#000; font-family:'Segoe UI', Arial, sans-serif; touch-action:manipulation; overscroll-behavior:none; -webkit-tap-highlight-color:transparent; }
   canvas { display:block; cursor:crosshair; position:absolute; top:0; left:0; z-index:1; }
   #gl { z-index:0; pointer-events:none; display:none; cursor:default; }
   .overlay {
@@ -48,6 +49,37 @@
   .weaponSlot .key { font-weight:bold; color:#f1c40f; display:block; }
   #topRightHud { position:absolute; top:10px; right:10px; color:#fff; text-align:right; font-size:14px; text-shadow:1px 1px 2px #000; z-index:5; }
   #pauseHint { position:absolute; bottom:10px; left:10px; color:rgba(255,255,255,0.55); font-size:12px; z-index:5; }
+
+  /* ---- touch controls (phones & tablets) ---- */
+  #touchUI { position:absolute; inset:0; z-index:8; pointer-events:none; display:none; touch-action:none; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+  .tBtn { pointer-events:auto; touch-action:none; -webkit-user-select:none; user-select:none; border:2px solid rgba(255,255,255,0.55); background:rgba(20,20,30,0.45); color:#fff; border-radius:50%; font-size:26px; line-height:1; padding:0; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .tBtn.down { background:rgba(255,255,255,0.35); border-color:#fff; transform:scale(0.94); }
+  #tLeftPad { position:absolute; left:calc(14px + env(safe-area-inset-left, 0px)); bottom:calc(16px + env(safe-area-inset-bottom, 0px)); display:flex; gap:14px; }
+  #tLeftPad .tBtn { width:84px; height:84px; font-size:34px; }
+  #tRightPad { position:absolute; right:calc(14px + env(safe-area-inset-right, 0px)); bottom:calc(16px + env(safe-area-inset-bottom, 0px)); width:200px; height:200px; }
+  #tFire { position:absolute; right:0; bottom:0; width:96px; height:96px; background:rgba(231,76,60,0.55); font-size:34px; }
+  #tJump { position:absolute; right:108px; bottom:10px; width:84px; height:84px; font-size:34px; }
+  .tSm { width:50px; height:50px; font-size:20px; }
+  #tSmall { position:absolute; right:0; bottom:108px; display:flex; flex-wrap:wrap-reverse; justify-content:flex-end; gap:8px; width:200px; }
+  #tPause { position:absolute; top:calc(8px + env(safe-area-inset-top, 0px)); left:50%; transform:translateX(-50%); width:44px; height:44px; font-size:18px; }
+  #tRotate { position:absolute; inset:0; display:none; align-items:center; justify-content:center; text-align:center; background:rgba(0,0,0,0.78); color:#fff; font-size:22px; padding:30px; pointer-events:none; }
+  body.touch #pauseHint { display:none !important; }
+  body.touch #versusLeaveBtn { top:8px !important; bottom:auto !important; right:auto !important; left:50% !important; transform:translateX(-50%); padding:6px 12px !important; font-size:12px; }
+  body.touch #weaponBar .weaponSlot:not(.active) { display:none; }
+  body.touch #weaponBar .weaponSlot { width:auto; padding:5px 10px; font-size:12px; }
+  @media (orientation:portrait) { body.touch #tRotate { display:flex; } }
+  @media (max-width:900px), (pointer:coarse) {
+    #hud { font-size:12px; top:6px; left:8px; }
+    #healthBarBg, #shieldBarBg { width:150px; }
+    #topRightHud { font-size:12px; top:6px; right:8px; }
+    #bossBarWrap { width:min(400px, 52vw); top:6px; }
+    .weaponSlot { width:52px; font-size:9px; }
+    #versusLeaderboard { font-size:11px !important; max-width:150px !important; }
+  }
+  @media (max-width:600px) {
+    #levelGrid { grid-template-columns:repeat(5,1fr); }
+    .overlay h1 { font-size:28px; }
+  }
 </style>
 </head>
 <body>
@@ -99,6 +131,7 @@
   <button class="btn secondary" id="armoryBtn">🎒 Armory</button>
   <button class="btn secondary" id="versusBtn">⚔ 1v1 Online</button>
   <button class="btn secondary" id="gfxBtn">Graphics: 3D</button>
+  <button class="btn secondary" id="touchBtn">Touch controls: Auto</button>
   <button class="btn secondary" id="resetBtn" style="background:#7f1d1d">Reset Progress</button>
   <div class="acctOnly" style="margin-top:14px;color:#aaa;font-size:14px;">
     <span id="acctStatus">Playing offline</span>
@@ -110,6 +143,7 @@
 <div id="versusMenuScreen" class="overlay" style="display:none">
   <h1>Online Battle Arena</h1>
   <p style="max-width:420px">Play live against friends on other computers. Anyone can join your room with its code — no player limit!</p>
+  <div style="margin:6px 0 10px;">Map: <select id="versusMapSel" style="padding:8px;font-size:15px;border-radius:6px;border:none;"></select></div>
   <button class="btn" id="versusCreateFfaBtn">Create Free-for-All Room</button>
   <button class="btn" id="versusCreateTeamBtn">Create Team Battle Room</button>
   <div style="margin:14px 0;">— or —</div>
@@ -184,6 +218,26 @@
 </div>
 <div id="bossBarWrap"><div id="bossName">BOSS</div><div id="bossBarBg"><div id="bossBarFill"></div></div></div>
 <div id="pauseHint" style="display:none">ESC to pause &bull; F5 camera view</div>
+
+<div id="touchUI">
+  <div id="tRotate">Please turn your phone sideways (landscape) to play</div>
+  <button class="tBtn tSm" id="tPause" aria-label="Pause">&#10074;&#10074;</button>
+  <div id="tLeftPad">
+    <button class="tBtn" id="tLeft" aria-label="Move left">&#9664;</button>
+    <button class="tBtn" id="tRight" aria-label="Move right">&#9654;</button>
+  </div>
+  <div id="tRightPad">
+    <div id="tSmall">
+      <button class="tBtn tSm" id="tReload" aria-label="Reload">R</button>
+      <button class="tBtn tSm" id="tHeal" aria-label="Heal">&#10010;</button>
+      <button class="tBtn tSm" id="tShield" aria-label="Shield">Q</button>
+      <button class="tBtn tSm" id="tWeapon" aria-label="Next weapon">&#128299;</button>
+      <button class="tBtn tSm" id="tCam" aria-label="Change camera">&#128247;</button>
+    </div>
+    <button class="tBtn" id="tJump" aria-label="Jump">&#9650;</button>
+    <button class="tBtn" id="tFire" aria-label="Fire">&#10006;</button>
+  </div>
+</div>
 
 <div id="versusHud" style="display:none; position:absolute; top:10px; left:10px; color:#fff; text-shadow:1px 1px 2px #000; z-index:5;">
   <div>Health</div>
@@ -262,17 +316,43 @@ const ENEMY_TYPES = {
 
 // ---------- Data: biomes (10 worlds x 10 levels = 100) ----------
 const BIOMES = [
-  { name:'Dusk Wastes',   sky:['#241b3a','#4a2f5c','#d97a4a'], ground:['#4a3b2a','#2c2318'], ridge:['#3a2a52','#5c3d5e'] },
-  { name:'Night City',    sky:['#0d0f2b','#1c2150','#3a3f8a'], ground:['#26283f','#15162a'], ridge:['#1c2150','#2f3570'] },
-  { name:'Desert Ruins',  sky:['#7a4a1f','#c98a3a','#f4c76a'], ground:['#8a6a3a','#5c4423'], ridge:['#6a4a25','#8a6a3a'] },
-  { name:'Frostlands',    sky:['#1c2b3a','#3a5a6e','#a9d6e5'], ground:['#4a5a63','#2a343a'], ridge:['#2f4a56','#3a5a6e'] },
-  { name:'Lava Core',     sky:['#2a0a0a','#5c1a12','#e0521a'], ground:['#3a1a12','#200d09'], ridge:['#4a1510','#6e2015'] },
-  { name:'Toxic Swamp',   sky:['#0f2a1a','#1f4a2e','#5ca34a'], ground:['#2a3a1f','#182410'], ridge:['#1f3a24','#2f5233'] },
-  { name:'Cyber Grid',    sky:['#0a0a1f','#141450','#3a1f6e'], ground:['#101025','#080814'], ridge:['#181840','#241f5e'] },
-  { name:'Deep Forest',   sky:['#1a2a1a','#2f4a2f','#6e8a4a'], ground:['#2a3520','#1a2015'], ridge:['#223a24','#2f4a2f'] },
-  { name:'Void Rift',     sky:['#0a0a12','#1a0a2a','#4a1a5a'], ground:['#150a1f','#0a0512'], ridge:['#200f30','#33144a'] },
-  { name:'Storm Peak',    sky:['#1a2333','#2f3a5a','#6a7aa0'], ground:['#2a2f3f','#181a24'], ridge:['#242a40','#2f3a5a'] }
+  { name:'Dusk Wastes',   theme:'city',   war:true,  missiles:true,  smoke:true,  lit:0.14, litColor:'#ff9a3c', wall:'#3a2c31', rubble:'#2a2224', fog:0.5,  weather:null,
+    light:{ amb:'#9a746e', ambI:0.95, sun:'#ffb070', sunI:0.85, hemiSky:'#a8786a', hemiGnd:'#201010' },
+    sky:['#241b3a','#4a2f5c','#d97a4a'], ground:['#4a3b2a','#2c2318'], ridge:['#3a2a52','#5c3d5e'] },
+  { name:'Night City',    theme:'city',   war:false, missiles:false, smoke:false, lit:0.5,  litColor:'#ffe6a0', wall:'#1b2038', rubble:'#161a2c', fog:0.7,  weather:null, moon:true,
+    light:{ amb:'#6a78b8', ambI:0.9, sun:'#9fb4ff', sunI:0.7, hemiSky:'#5a68a8', hemiGnd:'#10142a' },
+    sky:['#0d0f2b','#1c2150','#3a3f8a'], ground:['#26283f','#15162a'], ridge:['#1c2150','#2f3570'] },
+  { name:'Desert Ruins',  theme:'desert', sun:true, rubble:'#9a7a44', fog:0.8, weather:'dust',
+    light:{ amb:'#d8b890', ambI:1.0, sun:'#ffe2a8', sunI:1.0, hemiSky:'#e8c890', hemiGnd:'#6a4a22' },
+    sky:['#7a4a1f','#c98a3a','#f4c76a'], ground:['#8a6a3a','#5c4423'], ridge:['#6a4a25','#8a6a3a'] },
+  { name:'Frostlands',    theme:'snow',   rubble:'#cfe3f0', fog:0.95, weather:'snow',
+    light:{ amb:'#a8c4e0', ambI:1.0, sun:'#dff0ff', sunI:0.9, hemiSky:'#c8e4ff', hemiGnd:'#4a5a68' },
+    sky:['#1c2b3a','#3a5a6e','#a9d6e5'], ground:['#cfd9e0','#8fa0ac'], ridge:['#2f4a56','#3a5a6e'] },
+  { name:'Lava Core',     theme:'lava',   rubble:'#2a1210', fog:0.55, weather:'ember',
+    light:{ amb:'#a85a44', ambI:0.95, sun:'#ff8a4a', sunI:1.0, hemiSky:'#c0583a', hemiGnd:'#200806' },
+    sky:['#2a0a0a','#5c1a12','#e0521a'], ground:['#3a1a12','#200d09'], ridge:['#4a1510','#6e2015'] },
+  { name:'Toxic Swamp',   theme:'swamp',  rubble:'#2a3322', fog:0.6, weather:'spore', fogNear:22, fogFar:110,
+    light:{ amb:'#6c9a68', ambI:0.95, sun:'#b8ff90', sunI:0.6, hemiSky:'#7ab870', hemiGnd:'#101c0e' },
+    sky:['#0f2a1a','#1f4a2e','#5ca34a'], ground:['#2a3a1f','#182410'], ridge:['#1f3a24','#2f5233'] },
+  { name:'Cyber Grid',    theme:'cyber',  rubble:'#10102a', fog:0.6, weather:'bits',
+    light:{ amb:'#6a5ac0', ambI:0.9, sun:'#ff6ae8', sunI:0.8, hemiSky:'#4a6af0', hemiGnd:'#080818' },
+    sky:['#0a0a1f','#141450','#3a1f6e'], ground:['#101025','#080814'], ridge:['#181840','#241f5e'] },
+  { name:'Deep Forest',   theme:'forest', rubble:'#3a3a2a', fog:0.65, weather:'firefly', fogNear:25, fogFar:120,
+    light:{ amb:'#7aa070', ambI:0.95, sun:'#d8ffa0', sunI:0.8, hemiSky:'#88b878', hemiGnd:'#1a2412' },
+    sky:['#1a2a1a','#2f4a2f','#6e8a4a'], ground:['#2a3520','#1a2015'], ridge:['#223a24','#2f4a2f'] },
+  { name:'Void Rift',     theme:'void',   rubble:'#2a1a40', fog:0.45, weather:'mote',
+    light:{ amb:'#7a56b8', ambI:0.9, sun:'#c77dff', sunI:0.8, hemiSky:'#8a5ad0', hemiGnd:'#0a0518' },
+    sky:['#0a0a12','#1a0a2a','#4a1a5a'], ground:['#150a1f','#0a0512'], ridge:['#200f30','#33144a'] },
+  { name:'Storm Peak',    theme:'storm',  rubble:'#3a3f4f', fog:0.7, weather:'rain', lightning:true, fogNear:24, fogFar:115,
+    light:{ amb:'#7a88b0', ambI:0.9, sun:'#b8c8ff', sunI:0.7, hemiSky:'#8a98c0', hemiGnd:'#181c28' },
+    sky:['#1a2333','#2f3a5a','#6a7aa0'], ground:['#2a2f3f','#181a24'], ridge:['#242a40','#2f3a5a'] }
 ];
+let versusMapIdx = 0;
+function activeBiome() {
+  if (versusRunning) return BIOMES[versusMapIdx] || BIOMES[0];
+  return currentLevelConfig ? currentLevelConfig.biome : BIOMES[0];
+}
+function rndGen(seed) { let s = seed; return () => (s = (s * 16807) % 2147483647) / 2147483647; }
 
 const FINAL_BOSSES = {
   30:  { kind:'warlord', name:'IRON WARLORD', hpMult:2.2, dmgMult:1.3, speedMult:0.8, w:84,  h:112, color:'#6c7a89', head:'#3d4852', gun:'#d0d6dc', coinMult:3 },
@@ -467,6 +547,8 @@ function renderWeaponBar() {
     const div = document.createElement('div');
     div.className = 'weaponSlot' + (g.id === currentGunId ? ' active' : '');
     div.innerHTML = '<span class="key">' + g.key + '</span>' + g.name;
+    div.style.cursor = 'pointer';
+    div.onclick = () => { if (running && !paused) switchGun(g.id); };
     bar.appendChild(div);
   });
 }
@@ -474,10 +556,10 @@ function switchGun(id) { if (profile.ownedWeapons.includes(id)) { currentGunId =
 
 // ---------- Input ----------
 window.addEventListener('keydown', e => {
-  if (e.key === ' ' || (running && ['a', 'd', 'w', 'q', 'r', 'f'].includes(e.key.toLowerCase()))) e.preventDefault();
+  if (e.key === ' ' || ((running || versusRunning) && ['a', 'd', 'w', 'q', 'r', 'f'].includes(e.key.toLowerCase()))) e.preventDefault();
   keys[e.key.toLowerCase()] = true;
   if (e.key === 'Shift') zoom = ZOOM_LEVEL;
-  if ((e.key === ' ' || e.key.toLowerCase() === 'w') && running && !paused) jumpQueued = true;
+  if ((e.key === ' ' || e.key.toLowerCase() === 'w') && (running || versusRunning) && !paused) jumpQueued = true;
   if (e.key === 'Escape' && running) {
     if (performance.now() - lastUnlockTs < 250) return;
     paused = !paused;
@@ -507,8 +589,11 @@ window.addEventListener('keyup', e => {
   if (e.key === 'Shift') zoom = NORMAL_ZOOM;
 });
 canvas.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+let lastPointerType = 'mouse';
+window.addEventListener('pointerdown', e => { lastPointerType = e.pointerType || 'mouse'; }, true);
 canvas.addEventListener('mousedown', e => {
   if (e.button !== 0) return;
+  if (lastPointerType === 'touch') return;
   mouse.down = true;
   if ((running || versusRunning) && !paused && use3D && camMode !== 0 && document.pointerLockElement !== canvas && canvas.requestPointerLock) canvas.requestPointerLock();
   if (running && !paused) { const g = currentGun(); if (g.kind !== 'beam') shoot(); }
@@ -1015,30 +1100,209 @@ function drawCloud(x, y, scale) {
   blocks.forEach(([bx,by,bw,bh]) => ctx.fillRect(x + bx*scale, y + by*scale, bw*scale, bh*scale));
 }
 function drawBackground() {
-  const biome = currentLevelConfig ? currentLevelConfig.biome : BIOMES[0];
+  const biome = activeBiome();
   const groundScreenY = canvas.height * 0.75;
+  const W = canvas.width;
   const sky = ctx.createLinearGradient(0, 0, 0, groundScreenY);
   sky.addColorStop(0, biome.sky[0]); sky.addColorStop(0.55, biome.sky[1]); sky.addColorStop(1, biome.sky[2]);
   ctx.fillStyle = sky;
-  ctx.fillRect(0, 0, canvas.width, groundScreenY);
+  ctx.fillRect(0, 0, W, groundScreenY);
 
-  const glow = ctx.createRadialGradient(canvas.width*0.5, groundScreenY*0.95, 0, canvas.width*0.5, groundScreenY*0.95, groundScreenY*0.6);
+  const glow = ctx.createRadialGradient(W*0.5, groundScreenY*0.95, 0, W*0.5, groundScreenY*0.95, groundScreenY*0.6);
   glow.addColorStop(0, 'rgba(255,200,140,0.4)'); glow.addColorStop(1, 'rgba(255,200,140,0)');
   ctx.fillStyle = glow;
-  ctx.fillRect(0, 0, canvas.width, groundScreenY);
+  ctx.fillRect(0, 0, W, groundScreenY);
 
-  // smoky, burning war-torn sky
-  ctx.fillStyle = 'rgba(25,15,15,0.45)';
-  ctx.fillRect(0, 0, canvas.width, groundScreenY);
-  const fire = ctx.createLinearGradient(0, groundScreenY * 0.45, 0, groundScreenY);
-  fire.addColorStop(0, 'rgba(255,90,20,0)'); fire.addColorStop(1, 'rgba(255,90,20,0.28)');
-  ctx.fillStyle = fire;
-  ctx.fillRect(0, 0, canvas.width, groundScreenY);
+  if (biome.war) {
+    ctx.fillStyle = 'rgba(25,15,15,0.45)';
+    ctx.fillRect(0, 0, W, groundScreenY);
+    const fire = ctx.createLinearGradient(0, groundScreenY * 0.45, 0, groundScreenY);
+    fire.addColorStop(0, 'rgba(255,90,20,0)'); fire.addColorStop(1, 'rgba(255,90,20,0.28)');
+    ctx.fillStyle = fire;
+    ctx.fillRect(0, 0, W, groundScreenY);
+  }
 
   const t = performance.now() / 1000;
-  drawMissiles(t, groundScreenY);
-  drawCityLayer(CITY_FAR, t, groundScreenY);
-  drawCityLayer(CITY_NEAR, t, groundScreenY);
+  if (biome.sun || biome.moon) {
+    const sx = W * (biome.sun ? 0.72 : 0.25), sy = groundScreenY * 0.28, r = groundScreenY * (biome.sun ? 0.26 : 0.16);
+    const sg = ctx.createRadialGradient(sx, sy, 0, sx, sy, r);
+    sg.addColorStop(0, biome.sun ? 'rgba(255,240,190,0.95)' : 'rgba(235,240,255,0.9)'); sg.addColorStop(0.25, biome.sun ? 'rgba(255,220,140,0.55)' : 'rgba(190,205,255,0.4)'); sg.addColorStop(1, 'rgba(255,220,140,0)');
+    ctx.fillStyle = sg; ctx.fillRect(0, 0, W, groundScreenY);
+  }
+  if (biome.missiles) drawMissiles(t, groundScreenY);
+  if (biome.theme === 'city') {
+    drawCityLayer(CITY_FAR, t, groundScreenY);
+    drawCityLayer(CITY_NEAR, t, groundScreenY);
+  } else {
+    (SIL_THEMES[biome.theme] || []).forEach(c => drawSilLayer(c, t));
+    if (biome.theme === 'swamp') {
+      const m = ctx.createLinearGradient(0, groundScreenY * 0.55, 0, groundScreenY);
+      m.addColorStop(0, 'rgba(110,210,90,0)'); m.addColorStop(1, 'rgba(110,210,90,0.3)');
+      ctx.fillStyle = m; ctx.fillRect(0, 0, W, groundScreenY);
+    } else if (biome.theme === 'cyber' || biome.theme === 'void' || biome.theme === 'lava') {
+      const col = biome.theme === 'cyber' ? '255,60,220' : biome.theme === 'void' ? '170,90,255' : '255,100,30';
+      const hg = ctx.createRadialGradient(W * 0.5, groundScreenY, 0, W * 0.5, groundScreenY, W * 0.55);
+      hg.addColorStop(0, 'rgba(' + col + ',0.38)'); hg.addColorStop(1, 'rgba(' + col + ',0)');
+      ctx.fillStyle = hg; ctx.fillRect(0, 0, W, groundScreenY);
+    }
+  }
+  if (biome.lightning) {
+    const ph = t % 7.3;
+    if (ph < 0.1 || (ph > 0.26 && ph < 0.33)) { ctx.fillStyle = 'rgba(225,235,255,0.4)'; ctx.fillRect(0, 0, W, groundScreenY); }
+  }
+  if (biome.weather) drawWeather2D(biome.weather, t, groundScreenY);
+}
+
+// ---------- Themed 2D scenery for the non-city worlds ----------
+const SIL_CACHE = {};
+const NEON = ['#00f0ff', '#ff2fd6', '#7cff4d', '#ffe14d'];
+function silLayer(kind, period, count, seed, minH, maxH, minW, maxW) {
+  const rnd = rndGen(seed), items = [];
+  for (let i = 0; i < count; i++) items.push({ x: rnd() * period, w: minW + rnd() * (maxW - minW), h: minH + rnd() * (maxH - minH), a: rnd(), b: rnd() });
+  items.sort((p, q) => p.x - q.x);
+  return { kind, period, items };
+}
+const SIL_THEMES = {
+  desert: [
+    { k:'dune',    par:0.10, base:0.745, col:'#b38a4a', n:9,  p:2600, s:11, h:[40,90],   w:[260,480] },
+    { k:'pyramid', par:0.14, base:0.75,  col:'#a67f3e', col2:'#7f5c2a', n:3, p:2600, s:12, h:[100,170], w:[200,320] },
+    { k:'dune',    par:0.30, base:0.80,  col:'#8f6c38', n:8,  p:2200, s:13, h:[30,64],   w:[220,380] },
+    { k:'pillar',  par:0.38, base:0.80,  col:'#7a5a30', n:9,  p:2200, s:14, h:[50,110],  w:[16,26] }
+  ],
+  snow: [
+    { k:'mount', par:0.08, base:0.745, col:'#7f98ab', col2:'#f4f9ff', n:7,  p:2600, s:21, h:[120,220], w:[220,380] },
+    { k:'mount', par:0.18, base:0.78,  col:'#4e6a7c', col2:'#ffffff', n:8,  p:2200, s:22, h:[80,150],  w:[160,280] },
+    { k:'pine',  par:0.36, base:0.80,  col:'#244a3c', col2:'#eaf4ff', n:20, p:2200, s:23, h:[60,120],  w:[32,56] }
+  ],
+  lava: [
+    { k:'volcano', par:0.08, base:0.745, col:'#2a1410', col2:'#ff6a1a', n:3,  p:2600, s:31, h:[130,210], w:[280,420] },
+    { k:'spire',   par:0.22, base:0.78,  col:'#3a1a14', n:14, p:2200, s:32, h:[60,150],  w:[24,52] },
+    { k:'mount',   par:0.36, base:0.80,  col:'#1a0c09', n:9,  p:2200, s:33, h:[40,90],   w:[100,180] }
+  ],
+  swamp: [
+    { k:'dead', par:0.12, base:0.76, col:'#1c2a1a', n:22, p:2400, s:41, h:[110,190], w:[16,26] },
+    { k:'dead', par:0.30, base:0.80, col:'#101810', n:14, p:2200, s:42, h:[130,240], w:[26,44] }
+  ],
+  cyber: [
+    { k:'tower', par:0.12, base:0.75, col:'#0b0b24', n:22, p:2400, s:51, h:[100,250], w:[40,76] },
+    { k:'tower', par:0.30, base:0.80, col:'#06061a', n:14, p:2200, s:52, h:[130,310], w:[56,96] }
+  ],
+  forest: [
+    { k:'round', par:0.12, base:0.765, col:'#1d4526', n:16, p:2400, s:61, h:[100,180], w:[80,120] },
+    { k:'round', par:0.26, base:0.79,  col:'#173a20', n:12, p:2200, s:62, h:[130,230], w:[100,150] },
+    { k:'round', par:0.42, base:0.82,  col:'#10301a', n:9,  p:2200, s:63, h:[160,280], w:[120,180] }
+  ],
+  void: [
+    { k:'float', par:0.08, base:0.52, col:'#2a1a44', col2:'#c77dff', n:7, p:2400, s:71, h:[40,90], w:[90,170] },
+    { k:'float', par:0.20, base:0.64, col:'#1c1130', col2:'#9a5cff', n:6, p:2200, s:72, h:[30,70], w:[70,130] }
+  ],
+  storm: [
+    { k:'mount', par:0.08, base:0.745, col:'#2b3350', n:7, p:2600, s:81, h:[150,250], w:[200,340] },
+    { k:'mount', par:0.20, base:0.79,  col:'#1b2136', n:8, p:2200, s:82, h:[100,170], w:[160,260] }
+  ]
+};
+function drawSilLayer(c, t) {
+  let L = SIL_CACHE[c.s];
+  if (!L) L = SIL_CACHE[c.s] = silLayer(c.k, c.p, c.n, c.s, c.h[0], c.h[1], c.w[0], c.w[1]);
+  const baseY = canvas.height * c.base, P = L.period * zoom;
+  const off = ((-cameraX * c.par * zoom) % P + P) % P - P;
+  for (let k = 0; k < 3; k++) {
+    const ox = off + k * P;
+    if (ox > canvas.width) break;
+    for (let i = 0; i < L.items.length; i++) {
+      const it = L.items[i];
+      const x = ox + it.x * zoom, w = it.w * zoom, h = it.h * zoom;
+      if (x + w < -40 || x > canvas.width + 40) continue;
+      drawSilShape(c, it, x, baseY, w, h, t);
+    }
+  }
+}
+function drawSilShape(c, it, x, by, w, h, t) {
+  ctx.fillStyle = c.col;
+  const tri = (ax, ay, bx, bY, cx, cy) => { ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, bY); ctx.lineTo(cx, cy); ctx.closePath(); ctx.fill(); };
+  if (c.k === 'dune') {
+    ctx.beginPath(); ctx.moveTo(x, by); ctx.quadraticCurveTo(x + w / 2, by - h * 2, x + w, by); ctx.closePath(); ctx.fill();
+  } else if (c.k === 'mount') {
+    const ax = x + w * (0.4 + it.a * 0.2);
+    tri(x, by, ax, by - h, x + w, by);
+    if (c.col2) {
+      const ly = by - h * 0.72, lx = x + (ax - x) * 0.72, rx = (x + w) - (x + w - ax) * 0.72;
+      ctx.fillStyle = c.col2; ctx.beginPath(); ctx.moveTo(ax, by - h); ctx.lineTo(lx, ly);
+      ctx.lineTo(lx + (rx - lx) * 0.3, ly + h * 0.07); ctx.lineTo(lx + (rx - lx) * 0.55, ly - h * 0.01); ctx.lineTo(lx + (rx - lx) * 0.78, ly + h * 0.06); ctx.lineTo(rx, ly);
+      ctx.closePath(); ctx.fill();
+    }
+  } else if (c.k === 'pyramid') {
+    const ax = x + w / 2;
+    tri(x, by, ax, by - h, ax, by);
+    ctx.fillStyle = c.col2; tri(ax, by - h, x + w, by, ax, by);
+  } else if (c.k === 'pillar') {
+    ctx.fillRect(x, by - h, w, h);
+    ctx.fillRect(x - w * 0.2, by - h - 5 * zoom, w * 1.4, 7 * zoom);
+  } else if (c.k === 'volcano') {
+    ctx.beginPath(); ctx.moveTo(x, by); ctx.lineTo(x + w * 0.38, by - h); ctx.lineTo(x + w * 0.62, by - h); ctx.lineTo(x + w, by); ctx.closePath(); ctx.fill();
+    const gx = x + w / 2, gy = by - h;
+    const g = ctx.createRadialGradient(gx, gy, 0, gx, gy, w * 0.4);
+    g.addColorStop(0, 'rgba(255,120,30,0.85)'); g.addColorStop(1, 'rgba(255,90,20,0)');
+    ctx.fillStyle = g; ctx.fillRect(gx - w * 0.4, gy - w * 0.4, w * 0.8, w * 0.8);
+    ctx.strokeStyle = c.col2; ctx.lineWidth = 3 * zoom;
+    ctx.beginPath(); ctx.moveTo(gx - w * 0.05, gy); ctx.lineTo(x + w * (0.3 + it.a * 0.15), by - h * 0.35); ctx.moveTo(gx + w * 0.06, gy); ctx.lineTo(x + w * (0.62 + it.b * 0.12), by - h * 0.3); ctx.stroke();
+  } else if (c.k === 'spire') {
+    tri(x, by, x + w / 2 + (it.a - 0.5) * w * 0.3, by - h, x + w, by);
+  } else if (c.k === 'pine') {
+    ctx.fillStyle = '#3a2a1c'; ctx.fillRect(x + w * 0.45, by - h * 0.14, w * 0.1, h * 0.14);
+    for (let i = 0; i < 3; i++) {
+      const tw = w * (1 - i * 0.26), ty = by - h * 0.1 - i * h * 0.27;
+      ctx.fillStyle = c.col; tri(x + w / 2 - tw / 2, ty, x + w / 2, ty - h * 0.42, x + w / 2 + tw / 2, ty);
+    }
+    ctx.fillStyle = c.col2; tri(x + w / 2 - w * 0.12, by - h * 0.74, x + w / 2, by - h * 0.97, x + w / 2 + w * 0.12, by - h * 0.74);
+  } else if (c.k === 'dead') {
+    const cx = x + w / 2, lean = (it.a - 0.5) * w * 2;
+    ctx.strokeStyle = c.col; ctx.lineCap = 'round';
+    ctx.lineWidth = w * 0.32; ctx.beginPath(); ctx.moveTo(cx, by); ctx.lineTo(cx + lean, by - h); ctx.stroke();
+    ctx.lineWidth = w * 0.16;
+    for (let j = 0; j < 3; j++) {
+      const f = 0.45 + j * 0.17, sx = cx + lean * f, sy = by - h * f, dir = (j + Math.floor(it.b * 4)) % 2 ? 1 : -1;
+      ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + dir * w * (1.6 + it.b * 2.2), sy - h * 0.17); ctx.stroke();
+    }
+    ctx.lineCap = 'butt';
+  } else if (c.k === 'tower') {
+    ctx.fillRect(x, by - h, w, h);
+    const neon = NEON[Math.floor(it.b * 4) % 4];
+    ctx.strokeStyle = neon; ctx.lineWidth = 2; ctx.strokeRect(x, by - h, w, h);
+    const rows = Math.min(24, Math.floor(h / (16 * zoom))), cols = Math.max(1, Math.floor(w / (14 * zoom)));
+    ctx.fillStyle = neon; ctx.globalAlpha = 0.75;
+    for (let r = 0; r < rows; r++) for (let q = 0; q < cols; q++) if ((r * 7 + q * 13 + Math.floor(it.x)) % 5 === 0) ctx.fillRect(x + 5 * zoom + q * 14 * zoom, by - h + 8 * zoom + r * 16 * zoom, 6 * zoom, 7 * zoom);
+    ctx.globalAlpha = 1;
+  } else if (c.k === 'round') {
+    ctx.fillStyle = '#3a2a1c'; ctx.fillRect(x + w * 0.44, by - h * 0.38, w * 0.12, h * 0.38);
+    ctx.fillStyle = c.col;
+    ctx.beginPath(); ctx.arc(x + w / 2, by - h * 0.65, w * 0.42, 0, Math.PI * 2); ctx.arc(x + w * 0.28, by - h * 0.5, w * 0.3, 0, Math.PI * 2); ctx.arc(x + w * 0.72, by - h * 0.5, w * 0.3, 0, Math.PI * 2); ctx.fill();
+  } else if (c.k === 'float') {
+    const cx = x + w / 2, cy = by + Math.sin(t * 0.7 + it.a * 6) * 8 * zoom, hh = h;
+    ctx.beginPath();
+    [[-0.5, 0.1], [-0.3, -0.5], [0.25, -0.45], [0.5, 0.0], [0.2, 0.7], [-0.25, 0.55]].forEach((p, i) => { const px = cx + p[0] * w, py = cy + p[1] * hh; if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); });
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = c.col2; tri(cx - 6 * zoom, cy - hh * 0.45, cx, cy - hh * 0.45 - 24 * zoom, cx + 6 * zoom, cy - hh * 0.45);
+  }
+}
+function drawWeather2D(kind, t, groundY) {
+  const W = canvas.width, H = groundY + (canvas.height - groundY) * 0.7;
+  const cfg = {
+    snow:{ n:90, c:'rgba(255,255,255,0.85)', s:3, vy:50, vx:12 }, rain:{ n:150, c:'rgba(170,196,255,0.55)', line:true, vy:900, vx:-180 },
+    ember:{ n:60, c:'rgba(255,140,40,0.85)', s:3, vy:-70, vx:20 }, spore:{ n:50, c:'rgba(130,255,90,0.7)', s:3, vy:-18, vx:10 },
+    dust:{ n:70, c:'rgba(232,201,138,0.5)', s:2, vy:6, vx:90 }, bits:{ n:80, c:'rgba(53,255,208,0.8)', s:3, vy:220, vx:0 },
+    firefly:{ n:30, c:'rgba(255,242,154,0.9)', s:4, vy:0, vx:0, bob:true }, mote:{ n:60, c:'rgba(199,125,255,0.8)', s:3, vy:-30, vx:6 }
+  }[kind];
+  if (!cfg) return;
+  ctx.fillStyle = cfg.c; ctx.strokeStyle = cfg.c; ctx.lineWidth = 1.5;
+  for (let i = 0; i < cfg.n; i++) {
+    const r1 = ((i * 7919) % 1000) / 1000, r2 = ((i * 104729) % 1000) / 1000;
+    let x = (r1 * W + cfg.vx * t) % W; if (x < 0) x += W;
+    let y = (r2 * H + cfg.vy * t) % H; if (y < 0) y += H;
+    if (cfg.bob) { x += Math.sin(t * 0.8 + i) * 20; y += Math.cos(t * 0.6 + i * 1.3) * 14; }
+    if (cfg.line) { ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - 5, y + 16); ctx.stroke(); }
+    else ctx.fillRect(x, y, cfg.s, cfg.s);
+  }
 }
 
 // ---------- Ruined city background ----------
@@ -1055,7 +1319,7 @@ function buildCity(period, count, minH, maxH, minW, maxW, seed) {
     for (let k = 0; k <= n; k++) pts.push(rnd() * (h * (rnd() < 0.4 ? 0.45 : 0.16)));
     const wins = [];
     const wc = 5 + Math.floor(rnd() * 8);
-    for (let k = 0; k < wc; k++) wins.push({ fx: 0.12 + rnd() * 0.66, fy: 0.22 + rnd() * 0.68, lit: rnd() < 0.18 });
+    for (let k = 0; k < wc; k++) wins.push({ fx: 0.12 + rnd() * 0.66, fy: 0.22 + rnd() * 0.68, r: rnd() });
     blds.push({ x, w, h, pts, wins, smoke: rnd() < 0.3, seed: rnd() * 10 });
     x += w * (0.85 + rnd() * 0.25) + (rnd() < 0.25 ? 30 + rnd() * 60 : 0);
   }
@@ -1085,13 +1349,14 @@ function drawCityLayer(L, t, groundScreenY) {
       ctx.closePath();
       ctx.fill();
       if (L.windows) {
+        const bm = activeBiome(), litP = bm.lit || 0.14;
         b.wins.forEach(wn => {
           const wx = x + wn.fx * w, wy = top + wn.fy * b.h * zoom;
-          ctx.fillStyle = wn.lit ? 'rgba(255,150,50,0.75)' : 'rgba(0,0,0,0.55)';
+          ctx.fillStyle = wn.r < litP ? (bm.litColor || '#ff9a3c') : 'rgba(0,0,0,0.55)';
           ctx.fillRect(wx, wy, 6 * zoom, 8 * zoom);
         });
       }
-      if (b.smoke) drawSmokeColumn(x + w * 0.5, top + b.pts[1] * zoom, b.seed, t, L.windows ? 1.2 : 0.8);
+      if (b.smoke && activeBiome().smoke !== false) drawSmokeColumn(x + w * 0.5, top + b.pts[1] * zoom, b.seed, t, L.windows ? 1.2 : 0.8);
     });
   }
 }
@@ -1318,7 +1583,7 @@ function draw() {
   if (screenShake > 0.5) ctx.translate((Math.random()-0.5)*screenShake, (Math.random()-0.5)*screenShake);
 
   drawBackground();
-  const biome = currentLevelConfig ? currentLevelConfig.biome : BIOMES[0];
+  const biome = activeBiome();
   const groundScreenY = canvas.height * 0.75;
   const groundGrad = ctx.createLinearGradient(0, groundScreenY, 0, canvas.height);
   groundGrad.addColorStop(0, biome.ground[0]); groundGrad.addColorStop(1, biome.ground[1]);
@@ -1538,7 +1803,7 @@ function sendRosterTo(targetId) {
   const roster = [{ id: myId, name: localV.name, team: localV.team, x: localV.x, health: localV.health, kills: localV.kills }];
   others.forEach((op, oid) => { if (oid !== targetId) roster.push({ id: oid, name: op.name, team: op.team, x: op.x, health: op.health, kills: op.kills }); });
   const conn = hostConnections[targetId];
-  if (conn) conn.send({ type:'roster', mode: versusMode, players: roster });
+  if (conn) conn.send({ type:'roster', mode: versusMode, map: versusMapIdx, players: roster });
 }
 
 function processVersusMessage(data) {
@@ -1577,6 +1842,7 @@ document.getElementById('versusBackBtn').onclick = () => { teardownPeer(); showM
 function createRoom(mode) {
   teardownPeer();
   versusMode = mode;
+  versusMapIdx = parseInt(document.getElementById('versusMapSel').value, 10) || 0;
   showVersusStatus('Creating room...');
   peer = new Peer();
   isHost = true;
@@ -1609,6 +1875,7 @@ document.getElementById('versusJoinBtn').onclick = () => {
     hostConn.on('data', d => {
       if (d.type === 'roster' && !localV) {
         versusMode = d.mode;
+        versusMapIdx = (d.map | 0) % BIOMES.length;
         d.players.forEach(pl => { if (pl.id !== myId) others.set(pl.id, vp(pl.name, pl.team)); });
         if (d.mode === 'team') {
           const redCount = d.players.filter(p => p.team === 'red').length, blueCount = d.players.filter(p => p.team === 'blue').length;
@@ -1643,7 +1910,7 @@ function beginVersusPlay() {
   document.getElementById('versusLeaveBtn').style.display = 'block';
   document.getElementById('versusTeamScore').style.display = versusMode === 'team' ? 'block' : 'none';
   cameraX = localV.x; zoom = NORMAL_ZOOM;
-  versusBullets = []; popups = [];
+  versusBullets = []; popups = [{ text:'Map: ' + BIOMES[versusMapIdx].name, life:90, maxLife:90, size:40, color:'#ffffff' }];
   versusRunning = true;
   versusLoop();
 }
@@ -1735,7 +2002,8 @@ function versusDraw() {
   drawBackground();
   const groundScreenY = canvas.height * 0.75;
   const groundGrad = ctx.createLinearGradient(0, groundScreenY, 0, canvas.height);
-  groundGrad.addColorStop(0, '#4a3b2a'); groundGrad.addColorStop(1, '#2c2318');
+  const vb = activeBiome();
+  groundGrad.addColorStop(0, vb.ground[0]); groundGrad.addColorStop(1, vb.ground[1]);
   ctx.fillStyle = groundGrad;
   ctx.fillRect(0, groundScreenY, canvas.width, canvas.height - groundScreenY);
   ctx.strokeStyle = '#e8956a'; ctx.lineWidth = 3;
@@ -1787,14 +2055,25 @@ function canvasTex(w, h, fn) { const c = document.createElement('canvas'); c.wid
 function radialTex(inner, outer) {
   return canvasTex(64, 64, (g) => { const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, inner); gr.addColorStop(1, outer); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); });
 }
-function facadeTex(seed) {
+function facadeTex(seed, lit, litColor, wall) {
   let s = seed * 7919 + 13; const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+  const lp = lit == null ? 0.14 : lit;
   return canvasTex(64, 128, (g) => {
-    g.fillStyle = '#3a2c31'; g.fillRect(0, 0, 64, 128);
+    g.fillStyle = wall || '#3a2c31'; g.fillRect(0, 0, 64, 128);
     for (let r = 0; r < 8; r++) for (let c = 0; c < 4; c++) {
       const v = rnd();
-      g.fillStyle = v < 0.14 ? '#ff9a3c' : v < 0.4 ? '#0f0a0c' : '#241a1e';
+      g.fillStyle = v < lp ? (litColor || '#ff9a3c') : v < lp + 0.26 ? '#0f0a0c' : '#241a1e';
       g.fillRect(6 + c * 15, 6 + r * 15, 9, 10);
+    }
+  });
+}
+function neonFacadeTex(seed) {
+  let s = seed * 6151 + 7; const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+  return canvasTex(64, 128, (g) => {
+    g.fillStyle = '#0a0a24'; g.fillRect(0, 0, 64, 128);
+    for (let r = 0; r < 8; r++) for (let c = 0; c < 4; c++) {
+      const v = rnd();
+      if (v < 0.34) { g.fillStyle = NEON[Math.floor(rnd() * 4) % 4]; g.globalAlpha = 0.85; g.fillRect(6 + c * 15, 6 + r * 15, 9, 10); g.globalAlpha = 1; }
     }
   });
 }
@@ -1803,11 +2082,21 @@ function skyTex(b) {
     const gr = g.createLinearGradient(0, 0, 0, h);
     gr.addColorStop(0, b.sky[0]); gr.addColorStop(0.55, b.sky[1]); gr.addColorStop(1, b.sky[2]);
     g.fillStyle = gr; g.fillRect(0, 0, w, h);
-    g.fillStyle = 'rgba(25,15,15,0.45)'; g.fillRect(0, 0, w, h);
-    const fire = g.createLinearGradient(0, h * 0.45, 0, h);
-    fire.addColorStop(0, 'rgba(255,90,20,0)'); fire.addColorStop(1, 'rgba(255,90,20,0.3)');
-    g.fillStyle = fire; g.fillRect(0, 0, w, h);
+    if (b.war) {
+      g.fillStyle = 'rgba(25,15,15,0.45)'; g.fillRect(0, 0, w, h);
+      const fire = g.createLinearGradient(0, h * 0.45, 0, h);
+      fire.addColorStop(0, 'rgba(255,90,20,0)'); fire.addColorStop(1, 'rgba(255,90,20,0.3)');
+      g.fillStyle = fire; g.fillRect(0, 0, w, h);
+    }
   });
+}
+function gridTex(kind) {
+  if (R3.gridTexs[kind]) return R3.gridTexs[kind];
+  const t = kind === 'cyber'
+    ? canvasTex(64, 64, (g) => { g.fillStyle = '#0b0b22'; g.fillRect(0, 0, 64, 64); g.fillStyle = '#00e5ff'; g.fillRect(0, 0, 2, 64); g.fillRect(0, 0, 64, 2); })
+    : canvasTex(64, 64, (g) => { g.fillStyle = '#ffffff'; g.fillRect(0, 0, 64, 64); g.fillStyle = 'rgba(0,0,0,0.28)'; g.fillRect(0, 0, 3, 64); g.fillRect(0, 0, 64, 3); });
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(160, 47);
+  R3.gridTexs[kind] = t; return t;
 }
 function m3(geo, color, sx, sy, sz, x, y, z, basic) {
   const mat = basic ? new THREE.MeshBasicMaterial({ color }) : new THREE.MeshLambertMaterial({ color });
@@ -1823,21 +2112,23 @@ function init3D() {
   if (typeof THREE === 'undefined') return false;
   try {
     const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('gl'), antialias: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    const coarse = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, coarse ? 1.5 : 2));
     renderer.setSize(window.innerWidth, window.innerHeight);
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 500);
     G3.box = new THREE.BoxGeometry(1, 1, 1); G3.sph = new THREE.SphereGeometry(1, 12, 10);
     G3.cone = new THREE.ConeGeometry(1, 1, 10); G3.cyl = new THREE.CylinderGeometry(1, 1, 1, 14); G3.plane = new THREE.PlaneGeometry(1, 1);
-    scene.add(new THREE.AmbientLight(0x9a746e, 0.95));
-    const sun = new THREE.DirectionalLight(0xffb070, 0.85); sun.position.set(-8, 14, 12); scene.add(sun);
-    scene.add(new THREE.HemisphereLight(0xa8786a, 0x201010, 0.5));
+    G3.pyr = new THREE.ConeGeometry(0.72, 1, 4); G3.mtn = new THREE.ConeGeometry(0.5, 1, 6); G3.ico = new THREE.IcosahedronGeometry(1, 0);
+    G3.torus = new THREE.TorusGeometry(1, 0.05, 8, 48); G3.circ = new THREE.CircleGeometry(1, 24); G3.boxEdges = new THREE.EdgesGeometry(G3.box);
+    const ambient = new THREE.AmbientLight(0x9a746e, 0.95); scene.add(ambient);
+    const sunL = new THREE.DirectionalLight(0xffb070, 0.85); sunL.position.set(-8, 14, 12); scene.add(sunL);
+    const hemi = new THREE.HemisphereLight(0xa8786a, 0x201010, 0.5); scene.add(hemi);
     scene.add(camera);
-    R3 = { renderer, scene, camera, ents: new Map(), seen: new Set(), bp: [], ep: [], pp: [], biome: null, camZoom: 1, camFov: 55, layers: [], smokes: [],
+    R3 = { renderer, scene, camera, ambient, sunL, hemi, ambBase: 0.95, sc: null, lastT: 0, gridTexs: {}, ents: new Map(), seen: new Set(), bp: [], ep: [], pp: [], biome: null, camZoom: 1, camFov: 55,
       cp: new THREE.Vector3(-5, 4, 18), cl: new THREE.Vector3(0, 4.6, 0), tmp: new THREE.Vector3(), camSnap: true, toastUntil: 0, toastText: '', fp: null };
     R3.glow = radialTex('rgba(255,255,255,1)', 'rgba(255,255,255,0)');
     R3.smoke = radialTex('rgba(85,74,76,0.75)', 'rgba(85,74,76,0)');
-    R3.facades = [1, 2, 3, 4].map(facadeTex);
 
     const gt = canvasTex(64, 64, (g) => { g.fillStyle = '#ffffff'; g.fillRect(0, 0, 64, 64); g.fillStyle = 'rgba(0,0,0,0.28)'; g.fillRect(0, 0, 3, 64); g.fillRect(0, 0, 64, 3); });
     gt.wrapS = gt.wrapT = THREE.RepeatWrapping; gt.repeat.set(160, 47);
@@ -1847,7 +2138,7 @@ function init3D() {
 
     // rubble scattered on the ground (the near-side pile is only shown in the first/third-person views)
     let rs = 4242; const rr = () => (rs = (rs * 16807) % 2147483647) / 2147483647;
-    const rubM = new THREE.MeshLambertMaterial({ color: '#2a2224' });
+    const rubM = new THREE.MeshLambertMaterial({ color: '#2a2224' }); R3.rubM = rubM;
     [-1, 1].forEach(sign => {
       const rubble = new THREE.Group();
       for (let k = -1; k <= 1; k++) for (let i = 0; i < 26; i++) {
@@ -1859,43 +2150,6 @@ function init3D() {
       if (sign < 0) R3.rubble = rubble; else R3.rubbleFront = rubble;
     });
 
-    const layerCfg = [
-      { z: -24, period: 100, minW: 5, maxW: 10, minH: 3.5, maxH: 12, tint: '#a89a9e', debris: '#161012', seed: 11 },
-      { z: -44, period: 130, minW: 6, maxW: 12, minH: 6, maxH: 20, tint: '#85767a', debris: '#1a1214', seed: 23 },
-      { z: -70, period: 160, minW: 8, maxW: 14, minH: 9, maxH: 30, tint: '#66585c', debris: '#1e1618', seed: 37 },
-      { z: 32, period: 110, minW: 5, maxW: 11, minH: 6, maxH: 20, tint: '#85767a', debris: '#1a1214', seed: 51 }
-    ];
-    layerCfg.forEach(cfg => {
-      let s = cfg.seed; const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
-      const pat = []; let x = 0;
-      while (x < cfg.period) {
-        const w = cfg.minW + rnd() * (cfg.maxW - cfg.minW), h = cfg.minH + rnd() * (cfg.maxH - cfg.minH);
-        pat.push({ x: x + w / 2, w, h, d: w * (0.8 + rnd() * 0.8), fac: Math.floor(rnd() * 4), tilt: rnd() < 0.55, smoke: rnd() < 0.24, r1: rnd(), r2: rnd() });
-        x += w * (0.9 + rnd() * 0.3) + (rnd() < 0.4 ? 3 + rnd() * 9 : 0);
-      }
-      const g = new THREE.Group();
-      const mats = R3.facades.map(t => new THREE.MeshBasicMaterial({ map: t, color: cfg.tint }));
-      const debM = new THREE.MeshBasicMaterial({ color: cfg.debris });
-      for (let k = -1; k <= 1; k++) pat.forEach(b => {
-        const bx = b.x + k * cfg.period;
-        const bm = new THREE.Mesh(G3.box, mats[b.fac]); bm.scale.set(b.w, b.h, b.d); bm.position.set(bx, b.h / 2, cfg.z); g.add(bm);
-        if (b.tilt) { const t = new THREE.Mesh(G3.box, debM); t.scale.set(b.w * 0.55, b.h * 0.22, b.d * 0.7); t.position.set(bx + (b.r1 - 0.5) * b.w * 0.4, b.h * 1.06, cfg.z); t.rotation.z = (b.r2 - 0.5) * 0.9; g.add(t); }
-        if (b.smoke) {
-          const sprites = [];
-          for (let j = 0; j < 8; j++) { const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: R3.smoke, transparent: true, depthWrite: false })); g.add(sp); sprites.push(sp); }
-          const fire = glowSprite('#ff7a2a', 6, 0.7); fire.position.set(bx, b.h, cfg.z + 1); g.add(fire);
-          R3.smokes.push({ x: bx, y: b.h, z: cfg.z + 1, seed: b.r1 * 10, size: 0.6 + (-cfg.z) / 50, sprites, fire });
-        }
-      });
-      scene.add(g); R3.layers.push({ g, period: cfg.period });
-    });
-
-    R3.missiles = MISSILES.map(m => {
-      const head = glowSprite('#fff2c4', 3.2, 1), boom = glowSprite('#ff8a2a', 10, 0.9);
-      const trail = new THREE.Mesh(G3.box, new THREE.MeshBasicMaterial({ color: '#ffb060', transparent: true, opacity: 0.75 })); trail.scale.set(9, 0.3, 0.3);
-      scene.add(head); scene.add(boom); scene.add(trail);
-      return { m, head, boom, trail };
-    });
     R3.shield = m3(G3.sph, '#00e5ff', 1.6, 1.6, 1.6, 0, 1.2, 0, true); R3.shield.material.transparent = true; R3.shield.material.opacity = 0.22; R3.shield.visible = false; scene.add(R3.shield);
     R3.beam = m3(G3.box, '#00e5ff', 30, 0.07, 0.07, 0, 0, 0, true); R3.beam.visible = false; scene.add(R3.beam);
     return true;
@@ -1903,14 +2157,308 @@ function init3D() {
 }
 
 function syncBiome() {
-  const b = currentLevelConfig ? currentLevelConfig.biome : BIOMES[0];
+  const b = activeBiome();
   if (R3.biome === b) return;
   R3.biome = b;
   if (R3.scene.background && R3.scene.background.dispose) R3.scene.background.dispose();
   R3.scene.background = skyTex(b);
-  R3.scene.fog = new THREE.Fog(new THREE.Color(b.sky[2]).multiplyScalar(0.5), 35, 150);
-  R3.ground.material.color.set(b.ground[1]);
+  R3.scene.fog = new THREE.Fog(new THREE.Color(b.sky[2]).multiplyScalar(b.fog || 0.5), b.fogNear || 35, b.fogFar || 150);
+  R3.ground.material.color.set(b.theme === 'cyber' ? '#ffffff' : b.ground[1]);
+  R3.ground.material.map = gridTex(b.theme === 'cyber' ? 'cyber' : 'default'); R3.ground.material.needsUpdate = true;
+  R3.rubM.color.set(b.rubble || '#2a2224');
+  const L = b.light;
+  R3.ambient.color.set(L.amb); R3.ambient.intensity = L.ambI; R3.ambBase = L.ambI;
+  R3.sunL.color.set(L.sun); R3.sunL.intensity = L.sunI;
+  R3.hemi.color.set(L.hemiSky); R3.hemi.groundColor.set(L.hemiGnd);
+  buildScenery(b);
 }
+
+// ---------- Themed 3D worlds ----------
+const WEATHER3D = {
+  snow:{ n:420, color:'#ffffff', size:0.35, vy:-2.6, vx:0.6, add:false, op:0.95, wob:0.6 },
+  rain:{ n:520, color:'#a9c4ff', size:0.22, vy:-34, vx:-7, add:false, op:0.55 },
+  ember:{ n:200, color:'#ff8a2a', size:0.45, vy:3, vx:0.8, add:true, op:0.95, wob:0.8 },
+  spore:{ n:170, color:'#8dff55', size:0.5, vy:0.8, vx:0.3, add:true, op:0.8, wob:1.2 },
+  dust:{ n:220, color:'#f0d49a', size:0.3, vy:-0.3, vx:8, add:false, op:0.55, wob:0.5 },
+  bits:{ n:240, color:'#3dffd8', size:0.32, vy:-7, vx:0, add:true, op:0.9 },
+  firefly:{ n:80, color:'#fff29a', size:0.7, vy:0, vx:0, add:true, op:1, wob:2.2, bob:true },
+  mote:{ n:190, color:'#c77dff', size:0.5, vy:1.8, vx:0.3, add:true, op:0.9, wob:1 }
+};
+function makeWeather(kind) {
+  const c = WEATHER3D[kind]; if (!c) return null;
+  const SX = 46, SY = 30, SZ = 34, n = c.n;
+  const pos = new Float32Array(n * 3), base = new Float32Array(n * 3), rnd = rndGen(777);
+  for (let i = 0; i < n; i++) { base[i * 3] = (rnd() * 2 - 1) * SX; base[i * 3 + 1] = rnd() * SY; base[i * 3 + 2] = (rnd() * 2 - 1) * SZ; }
+  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const mat = new THREE.PointsMaterial({ color: c.color, size: c.size, map: R3.glow, transparent: true, opacity: c.op, depthWrite: false, blending: c.add ? THREE.AdditiveBlending : THREE.NormalBlending, sizeAttenuation: true });
+  const pts = new THREE.Points(geo, mat); pts.frustumCulled = false; R3.scene.add(pts);
+  return { pts, update(camX, t) {
+    for (let i = 0; i < n; i++) {
+      const ph = i * 0.37;
+      const x = base[i * 3] + c.vx * t + (c.wob ? Math.sin(t * 0.8 + ph) * c.wob : 0);
+      const y = base[i * 3 + 1] + c.vy * t + (c.bob ? Math.cos(t * 0.6 + ph) * 0.8 : 0);
+      const z = base[i * 3 + 2] + (c.wob ? Math.cos(t * 0.7 + ph) * c.wob * 0.6 : 0);
+      pos[i * 3] = camX + ((((x - camX + SX) % (2 * SX)) + 2 * SX) % (2 * SX) - SX);
+      pos[i * 3 + 1] = ((y % SY) + SY) % SY;
+      pos[i * 3 + 2] = z;
+    }
+    geo.attributes.position.needsUpdate = true;
+  } };
+}
+
+function clearScenery() {
+  const sc = R3.sc; if (!sc) return;
+  R3.scene.remove(sc.g);
+  sc.g.traverse(o => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); });
+  Object.values(sc.mats).forEach(m => m.dispose());
+  sc.textures.forEach(t => t.dispose()); sc.geos.forEach(g => g.dispose());
+  if (sc.weather) { R3.scene.remove(sc.weather.pts); sc.weather.pts.geometry.dispose(); sc.weather.pts.material.dispose(); }
+  R3.ambient.intensity = R3.ambBase;
+  R3.sc = null;
+}
+function buildScenery(b) {
+  clearScenery();
+  const sc = { g: new THREE.Group(), layers: [], smokes: [], missiles: [], mats: {}, textures: [], geos: [], pulse: [], spin: [], floaters: [], tick: null, weather: null };
+  R3.scene.add(sc.g);
+  (SCENERY[b.theme] || buildCityScenery)(sc, b);
+  sc.weather = b.weather ? makeWeather(b.weather) : null;
+  R3.sc = sc;
+}
+function scMesh(sc, g, geo, color, sx, sy, sz, x, y, z, basic, rot, extra) {
+  const key = color + (basic ? 'b' : 'l') + (extra ? JSON.stringify(extra) : '');
+  const m = sc.mats[key] || (sc.mats[key] = basic ? new THREE.MeshBasicMaterial(Object.assign({ color }, extra)) : new THREE.MeshLambertMaterial(Object.assign({ color }, extra)));
+  const me = new THREE.Mesh(geo, m); me.scale.set(sx, sy, sz); me.position.set(x, y, z);
+  if (rot) me.rotation.set(rot[0] || 0, rot[1] || 0, rot[2] || 0);
+  g.add(me); return me;
+}
+function scBand(sc, cfg, makeItem) {
+  const g = new THREE.Group(), rnd = rndGen(cfg.seed);
+  for (let i = 0; i < cfg.count; i++) {
+    const r = { x: rnd() * cfg.period, a: rnd(), b: rnd(), c: rnd(), d: rnd() };
+    const z = cfg.z + (cfg.zj ? (rnd() - 0.5) * cfg.zj : 0);
+    for (let k = -1; k <= 1; k++) makeItem(g, r.x + k * cfg.period, z, r);
+  }
+  sc.g.add(g); sc.layers.push({ g, period: cfg.period });
+  return g;
+}
+function scSmoke(sc, g, x, y, z, seed, size, fireColor) {
+  const sprites = [];
+  for (let j = 0; j < 8; j++) { const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: R3.smoke, transparent: true, depthWrite: false })); g.add(sp); sprites.push(sp); }
+  const fire = glowSprite(fireColor || '#ff7a2a', 6, 0.7); fire.position.set(x, y, z + 1); g.add(fire);
+  sc.smokes.push({ x, y, z: z + 1, seed, size, sprites, fire });
+}
+function scGlow(sc, g, color, scale, x, y, z, op) { const sp = glowSprite(color, scale, op); sp.position.set(x, y, z); g.add(sp); sc.pulse.push(sp); return sp; }
+function scTree(sc, g, x, z, r, kind) {
+  const s = 0.9 + r.a * 1.1;
+  if (kind === 'dead') {
+    const h = 5 + r.a * 5, col = '#2b2a1c', lean = (r.b - 0.5) * 0.25;
+    scMesh(sc, g, G3.cyl, col, 0.36, h, 0.36, x, h / 2, z, false, [0, 0, lean]);
+    for (let j = 0; j < 3; j++) { const dir = (j + Math.floor(r.c * 3)) % 2 ? 1 : -1; scMesh(sc, g, G3.box, col, 2.4, 0.16, 0.16, x + dir * 1.0, h * (0.55 + j * 0.15), z, false, [0, 0, dir * (0.45 + r.d * 0.5)]); }
+    return;
+  }
+  const greens = ['#1f4d28', '#2a6130', '#173d20'], gc = greens[Math.floor(r.b * 3) % 3];
+  scMesh(sc, g, G3.cyl, '#4a3524', 0.34 * s, 4.2 * s, 0.34 * s, x, 2.1 * s, z);
+  scMesh(sc, g, G3.sph, gc, 2.3 * s, 2.0 * s, 2.3 * s, x, 4.9 * s, z);
+  scMesh(sc, g, G3.sph, gc, 1.6 * s, 1.4 * s, 1.6 * s, x + (r.c - 0.5) * 1.4 * s, 6.2 * s, z);
+}
+
+function buildCityScenery(sc, b) {
+  const facs = [1, 2, 3, 4].map(s => facadeTex(s, b.lit, b.litColor, b.wall)); sc.textures.push(...facs);
+  [
+    { z: -24, period: 100, minW: 5, maxW: 10, minH: 3.5, maxH: 12, tint: '#a89a9e', debris: '#161012', seed: 11 },
+    { z: -44, period: 130, minW: 6, maxW: 12, minH: 6, maxH: 20, tint: '#85767a', debris: '#1a1214', seed: 23 },
+    { z: -70, period: 160, minW: 8, maxW: 14, minH: 9, maxH: 30, tint: '#66585c', debris: '#1e1618', seed: 37 },
+    { z: 32, period: 110, minW: 5, maxW: 11, minH: 6, maxH: 20, tint: '#85767a', debris: '#1a1214', seed: 51 }
+  ].forEach(cfg => {
+    const rnd = rndGen(cfg.seed), pat = []; let x = 0;
+    while (x < cfg.period) {
+      const w = cfg.minW + rnd() * (cfg.maxW - cfg.minW), h = cfg.minH + rnd() * (cfg.maxH - cfg.minH);
+      pat.push({ x: x + w / 2, w, h, d: w * (0.8 + rnd() * 0.8), fac: Math.floor(rnd() * 4), tilt: rnd() < 0.55, smoke: rnd() < 0.24, r1: rnd(), r2: rnd() });
+      x += w * (0.9 + rnd() * 0.3) + (rnd() < 0.4 ? 3 + rnd() * 9 : 0);
+    }
+    const g = new THREE.Group();
+    const mats = facs.map(t => new THREE.MeshBasicMaterial({ map: t, color: cfg.tint }));
+    const debM = new THREE.MeshBasicMaterial({ color: cfg.debris });
+    for (let k = -1; k <= 1; k++) pat.forEach(bd => {
+      const bx = bd.x + k * cfg.period;
+      const bm = new THREE.Mesh(G3.box, mats[bd.fac]); bm.scale.set(bd.w, bd.h, bd.d); bm.position.set(bx, bd.h / 2, cfg.z); g.add(bm);
+      if (bd.tilt) { const t = new THREE.Mesh(G3.box, debM); t.scale.set(bd.w * 0.55, bd.h * 0.22, bd.d * 0.7); t.position.set(bx + (bd.r1 - 0.5) * bd.w * 0.4, bd.h * 1.06, cfg.z); t.rotation.z = (bd.r2 - 0.5) * 0.9; g.add(t); }
+      if (bd.smoke && b.smoke) scSmoke(sc, g, bx, bd.h, cfg.z, bd.r1 * 10, 0.6 + (-cfg.z) / 50);
+    });
+    sc.g.add(g); sc.layers.push({ g, period: cfg.period });
+  });
+  if (b.missiles) sc.missiles = MISSILES.map(m => {
+    const head = glowSprite('#fff2c4', 3.2, 1), boom = glowSprite('#ff8a2a', 10, 0.9);
+    const trail = new THREE.Mesh(G3.box, new THREE.MeshBasicMaterial({ color: '#ffb060', transparent: true, opacity: 0.75 })); trail.scale.set(9, 0.3, 0.3);
+    sc.g.add(head); sc.g.add(boom); sc.g.add(trail);
+    return { m, head, boom, trail };
+  });
+  if (b.moon) { const moon = glowSprite('#e8eeff', 42, 0.9); sc.g.add(moon); sc.tick = (camX) => moon.position.set(camX + 30, 34, -110); }
+}
+
+function buildDesert(sc, b) {
+  scBand(sc, { z:-100, period:240, count:6, seed:101 }, (g, x, z, r) => scMesh(sc, g, G3.sph, '#c9a05a', 20 + r.a * 18, 4 + r.b * 6, 16, x, 0, z));
+  scBand(sc, { z:-75, period:270, count:3, seed:102 }, (g, x, z, r) => { const w = 15 + r.a * 13, h = 11 + r.b * 10; scMesh(sc, g, G3.pyr, '#cfa762', w, h, w, x, h / 2, z, false, [0, Math.PI / 4, 0]); });
+  scBand(sc, { z:-52, period:200, count:5, seed:103 }, (g, x, z, r) => scMesh(sc, g, G3.sph, '#b88a46', 14 + r.a * 12, 3 + r.b * 4, 12, x, 0, z));
+  scBand(sc, { z:-36, period:150, count:7, seed:104 }, (g, x, z, r) => {
+    const h = 3 + r.a * 6, tilt = r.b < 0.3 ? (r.c - 0.5) * 1.2 : 0;
+    scMesh(sc, g, G3.cyl, '#a8865a', 0.9, h, 0.9, x, h / 2, z, false, [0, 0, tilt]);
+    if (r.b > 0.6) scMesh(sc, g, G3.box, '#b6946a', 2.2, 0.5, 2.2, x, h + 0.25, z);
+  });
+  scBand(sc, { z:-20, period:120, count:6, seed:105 }, (g, x, z, r) => {
+    const h = 2.2 + r.a * 2;
+    scMesh(sc, g, G3.cyl, '#3f7a3a', 0.38, h, 0.38, x, h / 2, z);
+    scMesh(sc, g, G3.cyl, '#3f7a3a', 0.26, 0.9, 0.26, x + 0.55, h * 0.55, z);
+    scMesh(sc, g, G3.cyl, '#3f7a3a', 0.26, 0.9, 0.26, x - 0.5, h * 0.7, z);
+  });
+  scBand(sc, { z:30, period:140, count:6, seed:106 }, (g, x, z, r) => scMesh(sc, g, G3.sph, '#b88a46', 12 + r.a * 10, 2.5 + r.b * 3, 9, x, 0, z));
+  const sun = glowSprite('#ffd27a', 80, 0.95); sc.g.add(sun);
+  sc.tick = (camX) => sun.position.set(camX + 24, 30, -130);
+}
+
+function buildSnow(sc, b) {
+  const mount = (base, cap, wMin, hMin) => (g, x, z, r) => {
+    const w = wMin + r.a * wMin, h = hMin + r.b * hMin;
+    scMesh(sc, g, G3.mtn, base, w, h, w * 0.8, x, h / 2, z);
+    scMesh(sc, g, G3.mtn, cap, w * 0.36, h * 0.4, w * 0.29, x, h * 0.8, z);
+  };
+  scBand(sc, { z:-105, period:280, count:5, seed:201 }, mount('#8fa6ba', '#f2f8ff', 26, 24));
+  scBand(sc, { z:-72, period:230, count:6, seed:202 }, mount('#6d869b', '#ffffff', 16, 14));
+  const pine = (g, x, z, r) => {
+    const s = 0.8 + r.a * 0.9;
+    scMesh(sc, g, G3.cyl, '#4a3526', 0.25 * s, 1.4 * s, 0.25 * s, x, 0.7 * s, z);
+    scMesh(sc, g, G3.cone, '#2f6150', 1.7 * s, 2.4 * s, 1.7 * s, x, 2.5 * s, z);
+    scMesh(sc, g, G3.cone, '#244b3c', 1.15 * s, 2.0 * s, 1.15 * s, x, 4.1 * s, z);
+    scMesh(sc, g, G3.cone, '#f2f8ff', 0.5 * s, 0.8 * s, 0.5 * s, x, 5.2 * s, z);
+  };
+  scBand(sc, { z:-40, period:160, count:10, seed:203 }, pine);
+  scBand(sc, { z:-25, period:130, count:9, seed:204 }, pine);
+  scBand(sc, { z:-14, period:110, count:6, seed:205 }, pine);
+  scBand(sc, { z:28, period:140, count:6, seed:206 }, pine);
+  scBand(sc, { z:-9, period:100, count:6, seed:207 }, (g, x, z, r) => { const h = 1.5 + r.a * 3; scMesh(sc, g, G3.cone, '#bfe9ff', 0.7, h, 0.7, x, h / 2, z, false, [0, 0, (r.b - 0.5) * 0.4], { transparent: true, opacity: 0.8 }); });
+}
+
+function buildLava(sc, b) {
+  scBand(sc, { z:-100, period:320, count:3, seed:301 }, (g, x, z, r) => {
+    const w = 40 + r.a * 26, h = 26 + r.b * 14;
+    scMesh(sc, g, G3.cone, '#2e1812', w, h, w * 0.9, x, h / 2, z);
+    scMesh(sc, g, G3.box, '#ff5a1a', 0.7, h * 0.7, 0.3, x + w * 0.08, h * 0.55, z + w * 0.4, true, [0, 0, 0.3]);
+    scGlow(sc, g, '#ff7a2a', w * 0.8, x, h, z + 1, 0.9);
+    scSmoke(sc, g, x, h, z, r.c * 10, 1.6, '#ff5a1a');
+  });
+  const spire = (hMin) => (g, x, z, r) => { const h = hMin + r.b * hMin * 1.2, w = 1.4 + r.a * 1.6; scMesh(sc, g, G3.cone, '#3a1c16', w, h, w, x, h / 2, z); };
+  scBand(sc, { z:-45, period:170, count:9, seed:302 }, spire(7));
+  scBand(sc, { z:-26, period:140, count:8, seed:303 }, spire(4));
+  scBand(sc, { z:26, period:140, count:6, seed:304 }, spire(4));
+  const pool = (g, x, z, r) => { const rad = 2 + r.a * 4; scMesh(sc, g, G3.circ, '#ff5a1a', rad, rad, 1, x, 0.04, z, true, [-Math.PI / 2, 0, 0]); scGlow(sc, g, '#ff7a2a', rad * 3.4, x, 0.9, z, 0.45); };
+  scBand(sc, { z:-10, period:130, count:5, seed:305, zj:8 }, pool);
+  scBand(sc, { z:-28, period:150, count:4, seed:306, zj:10 }, pool);
+}
+
+function buildSwamp(sc, b) {
+  scBand(sc, { z:-70, period:220, count:16, seed:401 }, (g, x, z, r) => scTree(sc, g, x, z, r, 'dead'));
+  scBand(sc, { z:-42, period:170, count:10, seed:402 }, (g, x, z, r) => scTree(sc, g, x, z, r, 'dead'));
+  scBand(sc, { z:-26, period:140, count:8, seed:403 }, (g, x, z, r) => scTree(sc, g, x, z, r, 'dead'));
+  scBand(sc, { z:28, period:140, count:6, seed:404 }, (g, x, z, r) => scTree(sc, g, x, z, r, 'dead'));
+  scBand(sc, { z:-9, period:120, count:4, seed:405, zj:6 }, (g, x, z, r) => { const rad = 2 + r.a * 3; scMesh(sc, g, G3.circ, '#7bff3c', rad, rad, 1, x, 0.04, z, true, [-Math.PI / 2, 0, 0]); scGlow(sc, g, '#7bff3c', rad * 3, x, 0.8, z, 0.4); });
+  scBand(sc, { z:-16, period:120, count:7, seed:406 }, (g, x, z, r) => { const s = 0.8 + r.a * 1.2; scMesh(sc, g, G3.cyl, '#d8e6a0', 0.18 * s, 0.9 * s, 0.18 * s, x, 0.45 * s, z); scMesh(sc, g, G3.sph, '#8fff5a', 0.8 * s, 0.38 * s, 0.8 * s, x, 0.95 * s, z, true); });
+  scBand(sc, { z:-30, period:150, count:6, seed:407, zj:30 }, (g, x, z, r) => { const sp = glowSprite('#6fd96f', 26, 0.2); sp.position.set(x, 1.8 + r.b * 2, z); g.add(sp); });
+}
+
+function buildCyber(sc, b) {
+  const facs = [1, 2, 3, 4].map(neonFacadeTex); sc.textures.push(...facs);
+  const edgeMats = {};
+  const edge = (c) => edgeMats[c] || (edgeMats[c] = new THREE.LineBasicMaterial({ color: c }));
+  const tower = (tint) => {
+    const mats = facs.map(t => new THREE.MeshBasicMaterial({ map: t, color: tint }));
+    return (g, x, z, r) => {
+      const w = 4 + r.a * 5, h = 8 + r.b * 26, d = w * (0.8 + r.c * 0.5);
+      const bm = new THREE.Mesh(G3.box, mats[Math.floor(r.d * 4) % 4]); bm.scale.set(w, h, d); bm.position.set(x, h / 2, z); g.add(bm);
+      const ln = new THREE.LineSegments(G3.boxEdges, edge(NEON[Math.floor(r.c * 4) % 4])); ln.scale.set(w, h, d); ln.position.set(x, h / 2, z); g.add(ln);
+    };
+  };
+  scBand(sc, { z:-26, period:110, count:7, seed:501 }, tower('#c8c8ff'));
+  scBand(sc, { z:-46, period:140, count:9, seed:502 }, tower('#9a9ad8'));
+  scBand(sc, { z:-76, period:190, count:10, seed:503 }, tower('#6a6aa8'));
+  scBand(sc, { z:30, period:120, count:6, seed:504 }, tower('#9a9ad8'));
+  scBand(sc, { z:-60, period:200, count:4, seed:505 }, (g, x, z, r) => {
+    const rad = 4 + r.a * 4;
+    sc.spin.push({ m: scMesh(sc, g, G3.torus, NEON[Math.floor(r.b * 4) % 4], rad, rad, rad, x, 14 + r.c * 10, z, true), sp: 0.25 + r.d * 0.4 });
+  });
+  const glow = glowSprite('#ff2fd6', 170, 0.5); sc.g.add(glow);
+  sc.tick = (camX, t) => { glow.position.set(camX, 8, -120); sc.spin.forEach((o, i) => { o.m.rotation.y = t * o.sp + i; o.m.rotation.x = t * 0.2 * o.sp; }); };
+}
+
+function buildForest(sc, b) {
+  const tree = (g, x, z, r) => scTree(sc, g, x, z, r, 'tree');
+  scBand(sc, { z:-9, period:90, count:4, seed:601 }, tree);
+  scBand(sc, { z:-18, period:110, count:6, seed:602 }, tree);
+  scBand(sc, { z:-30, period:130, count:8, seed:603 }, tree);
+  scBand(sc, { z:-46, period:160, count:10, seed:604 }, tree);
+  scBand(sc, { z:-70, period:200, count:10, seed:605 }, tree);
+  scBand(sc, { z:24, period:110, count:5, seed:606 }, tree);
+  scBand(sc, { z:36, period:140, count:5, seed:607 }, tree);
+  scBand(sc, { z:-35, period:150, count:5, seed:608, zj:40 }, (g, x, z, r) => { const sp = glowSprite('#b8e0a0', 28, 0.16); sp.position.set(x, 1.6 + r.b * 2.5, z); g.add(sp); });
+}
+
+function buildVoid(sc, b) {
+  const floaters = (sMin) => (g, x, z, r) => {
+    const s = sMin + r.a * 3.2, y = 4 + r.b * 20;
+    const m = scMesh(sc, g, G3.ico, '#2d1c4a', s, s * (0.7 + r.c * 0.5), s, x, y, z, false, [r.a * 3, r.b * 3, 0]);
+    const cr = scMesh(sc, g, G3.ico, '#c77dff', s * 0.3, s * 0.5, s * 0.3, x, y + s * 0.8, z, true);
+    sc.floaters.push({ m, cr, y, s, ph: r.d * 6 });
+  };
+  scBand(sc, { z:-24, period:130, count:5, seed:701, zj:6 }, floaters(1.2));
+  scBand(sc, { z:-46, period:160, count:7, seed:702, zj:10 }, floaters(1.6));
+  scBand(sc, { z:-72, period:200, count:7, seed:703, zj:14 }, floaters(2.2));
+  const portal = new THREE.Group();
+  scMesh(sc, portal, G3.torus, '#b36bff', 24, 24, 24, 0, 0, 0, true);
+  scMesh(sc, portal, G3.torus, '#7a3bd8', 19, 19, 19, 0, 0, 0, true);
+  const pg = glowSprite('#9a5cff', 110, 0.55); portal.add(pg);
+  sc.g.add(portal);
+  const n = 260, spos = new Float32Array(n * 3), rnd = rndGen(909);
+  for (let i = 0; i < n; i++) { const a = rnd() * Math.PI * 2, e = rnd() * 1.2 + 0.1, rad = 160; spos[i * 3] = Math.cos(a) * rad; spos[i * 3 + 1] = Math.sin(e) * rad * 0.5 + 5; spos[i * 3 + 2] = -Math.abs(Math.sin(a)) * rad - 20; }
+  const sgeo = new THREE.BufferGeometry(); sgeo.setAttribute('position', new THREE.BufferAttribute(spos, 3)); sc.geos.push(sgeo);
+  const stars = new THREE.Points(sgeo, new THREE.PointsMaterial({ color: '#ffffff', size: 1.4, sizeAttenuation: false, transparent: true, opacity: 0.8, fog: false })); stars.frustumCulled = false; sc.g.add(stars);
+  sc.tick = (camX, t) => {
+    portal.position.set(camX + 8, 26, -100); portal.rotation.z = t * 0.1; stars.position.x = camX;
+    sc.floaters.forEach(f => { const dy = Math.sin(t * 0.6 + f.ph) * 0.6; f.m.position.y = f.y + dy; f.cr.position.y = f.y + f.s * 0.8 + dy; f.m.rotation.y += 0.003; });
+  };
+}
+
+function buildStorm(sc, b) {
+  const peak = (col, wMin, hMin) => (g, x, z, r) => {
+    const w = wMin + r.a * wMin, h = hMin + r.b * hMin;
+    scMesh(sc, g, G3.mtn, col, w, h, w * 0.7, x, h / 2, z, false, [0, r.c * 3, 0]);
+    scMesh(sc, g, G3.mtn, col, w * 0.5, h * 0.7, w * 0.4, x + w * 0.35, h * 0.35, z + 2, false, [0, r.d * 3, 0]);
+  };
+  scBand(sc, { z:-100, period:280, count:6, seed:801 }, peak('#2f3858', 20, 22));
+  scBand(sc, { z:-68, period:230, count:7, seed:802 }, peak('#222a44', 14, 14));
+  scBand(sc, { z:-40, period:160, count:8, seed:803 }, (g, x, z, r) => { const h = 4 + r.a * 8; scMesh(sc, g, G3.box, '#2a3048', 1.4 + r.b, h, 1.4 + r.c, x, h / 2, z, false, [0, 0, (r.d - 0.5) * 0.3]); });
+  scBand(sc, { z:28, period:140, count:6, seed:804 }, (g, x, z, r) => { const h = 3 + r.a * 6; scMesh(sc, g, G3.box, '#2a3048', 1.4 + r.b, h, 1.4 + r.c, x, h / 2, z, false, [0, 0, (r.d - 0.5) * 0.3]); });
+  scBand(sc, { z:-85, period:300, count:8, seed:805, zj:30 }, (g, x, z, r) => {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: R3.smoke, color: '#1c2236', transparent: true, opacity: 0.75, depthWrite: false }));
+    const s = 50 + r.a * 30; sp.scale.set(s, s * 0.6, 1); sp.position.set(x, 32 + r.b * 10, z); g.add(sp);
+  });
+  const bolt = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: '#ecf4ff', fog: false })); bolt.visible = false; bolt.frustumCulled = false;
+  sc.geos.push(bolt.geometry); sc.g.add(bolt);
+  let next = 3, flash = 0;
+  sc.tick = (camX, t, dt) => {
+    next -= dt;
+    if (next <= 0) {
+      next = 4 + Math.random() * 6; flash = 0.35;
+      let x = camX + (Math.random() - 0.5) * 80, y = 62; const pts = [];
+      for (let i = 0; i < 9; i++) { pts.push(new THREE.Vector3(x, y, -70)); x += (Math.random() - 0.5) * 6; y -= 7.5; }
+      bolt.geometry.setFromPoints(pts); bolt.visible = true;
+    }
+    if (flash > 0) {
+      flash -= dt;
+      if (flash <= 0) { bolt.visible = false; R3.ambient.intensity = R3.ambBase; }
+      else R3.ambient.intensity = R3.ambBase + (flash / 0.35) * 2.4 * (Math.floor(flash * 18) % 2 ? 1 : 0.6);
+    }
+  };
+}
+const SCENERY = { city: buildCityScenery, desert: buildDesert, snow: buildSnow, lava: buildLava, swamp: buildSwamp, cyber: buildCyber, forest: buildForest, void: buildVoid, storm: buildStorm };
 
 // ---- characters ----
 function buildGun(id, color) {
@@ -2008,10 +2556,16 @@ function setBar(e, x, topY, frac) {
 
 // ---- world / camera ----
 function updateEnvironment(camX, t) {
-  R3.ground.position.x = camX; R3.groundTex.offset.x = camX / 3;
+  const dt = Math.min(0.1, Math.max(0, t - (R3.lastT || t))); R3.lastT = t;
+  const gmap = R3.ground.material.map;
+  R3.ground.position.x = camX; if (gmap) gmap.offset.x = camX / 3;
   R3.rubble.position.x = Math.round(camX / 80) * 80; R3.rubbleFront.position.x = R3.rubble.position.x;
-  R3.layers.forEach(L => { L.g.position.x = Math.round(camX / L.period) * L.period; });
-  R3.smokes.forEach(sm => {
+  const sc = R3.sc; if (!sc) return;
+  sc.layers.forEach(L => { L.g.position.x = Math.round(camX / L.period) * L.period; });
+  sc.pulse.forEach((sp, i) => { sp.material.opacity = 0.4 + 0.3 * Math.sin(t * 3 + i * 1.7); });
+  if (sc.tick) sc.tick(camX, t, dt);
+  if (sc.weather) sc.weather.update(camX, t);
+  sc.smokes.forEach(sm => {
     sm.sprites.forEach((sp, j) => {
       const age = (t * 0.09 + j / 8 + sm.seed) % 1;
       sp.position.set(sm.x + Math.sin(age * 5 + sm.seed) * 1.4 + age * 6, sm.y + age * 26 * sm.size, sm.z);
@@ -2019,7 +2573,7 @@ function updateEnvironment(camX, t) {
     });
     sm.fire.material.opacity = 0.45 + 0.3 * Math.sin(t * 7 + sm.seed);
   });
-  R3.missiles.forEach(ms => {
+  sc.missiles.forEach(ms => {
     const p = (t * ms.m.speed + ms.m.offset) % 1;
     const sx = camX + (ms.m.startX - 0.5) * 90, ex = camX + (ms.m.endX - 0.5) * 90, sy = 55, ey = 6, z = -50;
     if (p < 0.88) {
@@ -2145,7 +2699,7 @@ function draw3DOverlay(extra) {
     ctx.beginPath(); ctx.moveTo(cx - 12, cy); ctx.lineTo(cx - 4, cy); ctx.moveTo(cx + 4, cy); ctx.lineTo(cx + 12, cy);
     ctx.moveTo(cx, cy - 12); ctx.lineTo(cx, cy - 4); ctx.moveTo(cx, cy + 4); ctx.lineTo(cx, cy + 12); ctx.stroke();
   }
-  if (camMode !== 0 && (running || versusRunning) && !paused && document.pointerLockElement !== canvas) {
+  if (camMode !== 0 && (running || versusRunning) && !paused && document.pointerLockElement !== canvas && !touchEnabled()) {
     ctx.font = '16px Segoe UI, Arial'; ctx.textAlign = 'center';
     ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(canvas.width / 2 - 250, canvas.height - 64, 500, 34);
     ctx.fillStyle = '#ffffff'; ctx.fillText('Click the game to look around with your mouse (Esc to release)', canvas.width / 2, canvas.height - 41); ctx.textAlign = 'left';
@@ -2442,6 +2996,67 @@ function initAccounts() {
   $id('verifySignOutBtn').onclick = doSignOut;
 }
 initAccounts();
+
+// ---------- Touch controls (phones & tablets) ----------
+function touchPref() { try { return localStorage.getItem('cursed_touch') || 'auto'; } catch (e) { return 'auto'; } }
+function touchEnabled() {
+  const p = touchPref();
+  if (p === 'on') return true;
+  if (p === 'off') return false;
+  return !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+}
+function tapKey(k) { window.dispatchEvent(new KeyboardEvent('keydown', { key: k })); window.dispatchEvent(new KeyboardEvent('keyup', { key: k })); }
+function bindTouch(id, onDown, onUp) {
+  const el = document.getElementById(id);
+  const down = e => { e.preventDefault(); try { el.setPointerCapture(e.pointerId); } catch (_) {} el.classList.add('down'); onDown(); };
+  const up = e => { e.preventDefault(); el.classList.remove('down'); if (onUp) onUp(); };
+  el.addEventListener('pointerdown', down);
+  el.addEventListener('pointerup', up);
+  el.addEventListener('pointercancel', up);
+  el.addEventListener('lostpointercapture', up);
+  el.addEventListener('contextmenu', e => e.preventDefault());
+}
+bindTouch('tLeft', () => { keys['a'] = true; }, () => { keys['a'] = false; });
+bindTouch('tRight', () => { keys['d'] = true; }, () => { keys['d'] = false; });
+bindTouch('tJump', () => tapKey(' '));
+bindTouch('tFire', () => { mouse.down = true; }, () => { mouse.down = false; });
+bindTouch('tShield', () => { keys['q'] = true; }, () => { keys['q'] = false; });
+bindTouch('tReload', () => tapKey('r'));
+bindTouch('tHeal', () => tapKey('f'));
+bindTouch('tCam', () => tapKey('F5'));
+bindTouch('tPause', () => tapKey('Escape'));
+bindTouch('tWeapon', () => {
+  const owned = GUNS.filter(g => profile && profile.ownedWeapons.includes(g.id));
+  if (!owned.length) return;
+  const i = owned.findIndex(g => g.id === currentGunId);
+  switchGun(owned[(i + 1) % owned.length].id);
+});
+document.addEventListener('touchmove', e => { if ((running || versusRunning) && !paused && touchEnabled()) e.preventDefault(); }, { passive: false });
+function updateTouchUI() {
+  const on = touchEnabled();
+  document.body.classList.toggle('touch', on);
+  const show = on && (running || versusRunning) && !paused;
+  const ui = document.getElementById('touchUI');
+  const want = show ? 'block' : 'none';
+  if (ui.style.display !== want) ui.style.display = want;
+  if (!show && on) { keys['a'] = false; keys['d'] = false; keys['q'] = false; if (!(running || versusRunning)) mouse.down = false; }
+  ['tReload', 'tHeal', 'tShield', 'tWeapon', 'tPause'].forEach(id => { document.getElementById(id).style.display = running ? '' : 'none'; });
+}
+setInterval(updateTouchUI, 200);
+function touchLabel() { return 'Touch controls: ' + ({ auto: 'Auto', on: 'On', off: 'Off' }[touchPref()]); }
+document.getElementById('touchBtn').textContent = touchLabel();
+document.getElementById('touchBtn').onclick = () => {
+  const next = { auto: 'on', on: 'off', off: 'auto' }[touchPref()];
+  try { localStorage.setItem('cursed_touch', next); } catch (e) {}
+  document.getElementById('touchBtn').textContent = touchLabel();
+  updateTouchUI();
+};
+
+// ---------- Arena map picker ----------
+(function () {
+  const sel = document.getElementById('versusMapSel');
+  BIOMES.forEach((b, i) => { const o = document.createElement('option'); o.value = i; o.textContent = b.name; sel.appendChild(o); });
+})();
 
 // ---------- Wiring ----------
 document.getElementById('createProfileBtn').onclick = () => {
