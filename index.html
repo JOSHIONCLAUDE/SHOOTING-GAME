@@ -303,7 +303,12 @@ const GUNS = [
   { id:'frost',   name:'Frost Blaster', key:'9', cost:380, damage:14, cooldown:14, bulletSpeed:16, pellets:1, spread:0.03, bulletLife:62, color:'#74c0fc', kind:'bullet', slow:true, magSize:16, reloadTime:70 },
   { id:'rpg',     name:'RPG',           key:'0', cost:520, damage:130, cooldown:85, bulletSpeed:14, pellets:1, spread:0,    bulletLife:110, color:'#ff8a3d', kind:'rocket', splash:140, magSize:1, reloadTime:150 },
   { id:'rail',    name:'Railgun',       key:'-', cost:450, damage:90, cooldown:60, bulletSpeed:34, pellets:1, spread:0,    bulletLife:38, color:'#a5f3fc', kind:'bullet', pierce:true, magSize:4, reloadTime:110 },
-  { id:'flame',   name:'Flamethrower',  key:'=', cost:300, damage:4,  cooldown:2,  bulletSpeed:9,  pellets:1, spread:0.24, bulletLife:22, color:'#ff7a1a', kind:'bullet', burn:true, magSize:60, reloadTime:100 }
+  { id:'flame',   name:'Flamethrower',  key:'=', cost:300, damage:4,  cooldown:2,  bulletSpeed:9,  pellets:1, spread:0.24, bulletLife:22, color:'#ff7a1a', kind:'bullet', burn:true, magSize:60, reloadTime:100 },
+  // Close-combat weapons: no ammo. Swing hits everything in front of you; sword and axe also deflect enemy bullets.
+  { id:'knife',   name:'Knife',         key:'z', cost:30,  damage:14, cooldown:12, kind:'melee', range:38, knock:6,  swing:10, color:'#dfe6e9' },
+  { id:'sword',   name:'Sword',         key:'x', cost:140, damage:34, cooldown:26, kind:'melee', range:64, knock:14, swing:14, color:'#74b9ff', deflect:true },
+  { id:'axe',     name:'Battle Axe',    key:'v', cost:260, damage:75, cooldown:50, kind:'melee', range:60, knock:30, swing:20, color:'#fab1a0', deflect:true },
+  { id:'sling',   name:'Slingshot',     key:'b', cost:25,  damage:11, cooldown:20, bulletSpeed:13, pellets:1, spread:0, bulletLife:75, color:'#c8a97e', kind:'bullet', grav:0.08, lob:-1.6 }
 ];
 function currentGun() { return GUNS.find(g => g.id === currentGunId); }
 
@@ -401,7 +406,7 @@ let muzzleFlashTimer = 0;
 let killStreak = 0, killStreakTimer = 0;
 const KILL_WORDS = ['Nice!', 'Good!', 'Great!', 'Excellent!', 'Superb!', 'Amazing!', 'Unstoppable!', 'Godlike!'];
 
-const player = { x:0, y:GROUND_Y, w:28, h:46, vx:0, vy:0, speed:5, onGround:true, health:100, maxHealth:100, facing:1, invuln:0, shieldMeter:100, shieldActive:false, medkits:1, medkitCooldown:0, slide:0, slideDir:1, slideCd:0, crouchAmt:0, lean:0 };
+const player = { x:0, y:GROUND_Y, w:28, h:46, vx:0, vy:0, speed:5, onGround:true, health:100, maxHealth:100, facing:1, invuln:0, shieldMeter:100, shieldActive:false, medkits:1, medkitCooldown:0, slide:0, slideDir:1, slideCd:0, crouchAmt:0, lean:0, swing:0, swingMax:1, meleeCd:0 };
 function damagePlayer(amount) { if (!player.shieldActive) player.health -= amount; }
 const keys = {};
 let mouse = { x:0, y:0, down:false };
@@ -654,6 +659,7 @@ function shoot() {
   if (!running || paused) return;
   const gun = currentGun();
   if (gun.kind === 'beam') return;
+  if (gun.kind === 'melee') { meleeSwing(gun); return; }
   const ammo = ammoState[gun.id];
   if (ammo) {
     if (ammo.reloading || ammo.mag <= 0) return;
@@ -667,10 +673,32 @@ function shoot() {
     const angle = spreadAngle + wiggle;
     bullets.push({
       x: player.x + player.facing * player.w * 0.6, y: player.y - player.h * 0.6,
-      vx: player.facing * gun.bulletSpeed * Math.cos(angle), vy: gun.bulletSpeed * Math.sin(angle),
-      life: gun.bulletLife, damage: gun.damage, color: gun.color, kind: gun.kind, splash: gun.splash || 0, slow: !!gun.slow, pierce: !!gun.pierce, burn: !!gun.burn
+      vx: player.facing * gun.bulletSpeed * Math.cos(angle), vy: gun.bulletSpeed * Math.sin(angle) + (gun.lob || 0),
+      life: gun.bulletLife, damage: gun.damage, color: gun.color, kind: gun.kind, splash: gun.splash || 0, slow: !!gun.slow, pierce: !!gun.pierce, burn: !!gun.burn, grav: gun.grav || 0
     });
   }
+}
+function meleeSwing(gun) {
+  if (player.meleeCd > 0) return;
+  player.meleeCd = gun.cooldown; player.swing = player.swingMax = gun.swing;
+  tone(gun.id === 'knife' ? 520 : 260, 0.12, 'sawtooth', 0.06, gun.id === 'knife' ? 260 : 90);
+  const x0 = player.x - player.facing * 6, x1 = player.x + player.facing * (player.w / 2 + gun.range);
+  const left = Math.min(x0, x1), right = Math.max(x0, x1);
+  const top = player.y - player.h - 8, bottom = player.y + 4;
+  let hit = false;
+  const tryHit = (t, knock) => {
+    if (t.health <= 0) return;
+    if (t.x + t.w / 2 > left && t.x - t.w / 2 < right && t.y > top && t.y - t.h < bottom) {
+      t.health -= gun.damage; t.x += player.facing * knock; hit = true;
+      spawnParticles(t.x, t.y - t.h * 0.6, gun.color);
+    }
+  };
+  enemies.forEach(en => tryHit(en, gun.knock));
+  if (bossRef && !bossRef.dead) tryHit(bossRef, 0);
+  if (gun.deflect) enemyProjectiles.forEach(p => {
+    if (p.life > 0 && p.x > left && p.x < right && p.y > top && p.y < bottom) { p.life = 0; hit = true; spawnParticles(p.x, p.y, '#ffffff'); }
+  });
+  if (hit) { tone(150, 0.1, 'square', 0.07, 70); screenShake = Math.max(screenShake, gun.knock * 0.15); }
 }
 function beamTick() {
   const gun = currentGun();
@@ -890,6 +918,8 @@ function update() {
 
   if (fireCooldown > 0) fireCooldown--;
   if (muzzleFlashTimer > 0) muzzleFlashTimer--;
+  if (player.swing > 0) player.swing--;
+  if (player.meleeCd > 0) player.meleeCd--;
   Object.keys(ammoState).forEach(id => {
     const a = ammoState[id];
     if (a.reloading) {
@@ -907,6 +937,7 @@ function update() {
 
   bullets.forEach(b => {
     if (b.kind === 'grenade') b.vy += 0.35;
+    if (b.grav) { b.vy += b.grav; if (b.y >= GROUND_Y) b.life = 0; }
     b.x += b.vx; b.y += b.vy; b.life--;
     if (b.kind === 'grenade' && b.y >= GROUND_Y) { explode(b.x, GROUND_Y - 5, b.splash, b.damage, '#7cb342'); b.life = 0; }
   });
@@ -1090,6 +1121,9 @@ function update() {
       ammoEl.textContent = 'Ammo: ' + ammoNow.mag + '/' + gun.magSize + '  [R to reload]';
       ammoEl.style.color = ammoNow.mag === 0 ? '#e74c3c' : '#fff';
     }
+  } else if (gun.kind === 'melee' || gun.id === 'sling') {
+    ammoEl.textContent = gun.kind === 'melee' ? 'Melee — click to swing' + (gun.deflect ? ' (blocks bullets)' : '') : 'Slingshot — Unlimited stones';
+    ammoEl.style.color = '#c8a97e';
   } else {
     ammoEl.textContent = 'Energy Weapon — Unlimited';
     ammoEl.style.color = '#00e5ff';
@@ -1504,6 +1538,21 @@ function drawWeaponShape(id, s, w, h, facing, gunColor, gunLen) {
     rectBetween(0.05, 0.3, handY + h * 0.03, h * 0.11, dark);
     ctx.fillStyle = light;
     ctx.beginPath(); ctx.arc(px(0.85), handY, h * 0.03, 0, Math.PI * 2); ctx.fill();
+  } else if (id === 'knife') {
+    rectBetween(0, 0.3, handY - h * 0.03, h * 0.06, '#5d4037');
+    rectBetween(0.3, 1.0, handY - h * 0.025, h * 0.05, '#dfe6e9');
+  } else if (id === 'sword') {
+    rectBetween(-0.05, 0.2, handY - h * 0.03, h * 0.06, '#5d4037');
+    rectBetween(0.2, 0.28, handY - h * 0.09, h * 0.18, '#f1c40f');
+    rectBetween(0.28, 1.45, handY - h * 0.03, h * 0.06, '#dfe6e9');
+  } else if (id === 'axe') {
+    rectBetween(-0.05, 1.05, handY - h * 0.022, h * 0.045, '#8d6e63');
+    rectBetween(0.8, 1.1, handY - h * 0.14, h * 0.2, '#b2bec3');
+  } else if (id === 'sling') {
+    rectBetween(0, 0.4, handY - h * 0.03, h * 0.06, '#8d6e63');
+    rectBetween(0.35, 0.55, handY - h * 0.12, h * 0.045, '#8d6e63');
+    rectBetween(0.35, 0.55, handY + h * 0.07, h * 0.045, '#8d6e63');
+    rectBetween(0.5, 0.56, handY - h * 0.1, h * 0.2, '#e74c3c');
   } else if (id === 'frost') {
     rectBetween(0, 0.9, handY - h * 0.045, h * 0.09, gunColor);
     rectBetween(0.25, 0.4, handY - h * 0.08, h * 0.035, dark);
@@ -1711,6 +1760,11 @@ function draw() {
   const ps = worldToScreen(player.x, player.y);
   const playerLegSwing = !player.onGround ? 0.35 : (Math.abs(player.vx) > 0.3 ? Math.sin(frameCount * 0.35) * (Math.abs(player.vx) / player.speed) : 0);
   drawCharacter(ps, player.w*zoom, player.h*zoom, player.facing, '#3498db', '#1f5f8b', { legSwing: playerLegSwing, gunColor: currentGun().color, weaponId: currentGun().id, muzzleFlash: muzzleFlashTimer > 0 || beamFiring, gunLen: player.w * (currentGun().kind === 'beam' ? 0.7 : 0.95) });
+  if (player.swing > 0 && currentGun().kind === 'melee') {
+    const mg = currentGun(), mp = 1 - player.swing / player.swingMax, mc = player.facing > 0 ? 0 : Math.PI;
+    ctx.save(); ctx.strokeStyle = mg.color; ctx.globalAlpha = 0.85 * (1 - mp); ctx.lineWidth = 7 * zoom; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.arc(ps.x, ps.y - player.h * 0.6 * zoom, (mg.range + player.w / 2) * zoom, mc - 1, mc + 1); ctx.stroke(); ctx.restore();
+  }
 
   if (player.shieldActive) {
     ctx.strokeStyle = 'rgba(0,229,255,0.9)';
@@ -2514,6 +2568,10 @@ function buildGun(id, color) {
   else if (id === 'rpg') { bar(-0.05, 0.6, 0, 0.1, 0.1, c); bar(0.05, 0.25, 0.07, 0.035, 0.05, dk); cone(0.6, 0.085, 0.16, dk); tip = 0.78; }
   else if (id === 'rail') { bar(0, 0.72, 0, 0.04, 0.04, c); bar(0.15, 0.6, 0.05, 0.025, 0.05, dk); bar(0.15, 0.6, -0.05, 0.025, 0.05, dk); ball(0.4, 0, 0.035, lt); tip = 0.75; }
   else if (id === 'flame') { bar(0, 0.45, 0, 0.06, 0.06, c); bar(0.04, 0.24, -0.09, 0.11, 0.09, dk); ball(0.47, 0, 0.03, lt); tip = 0.5; }
+  else if (id === 'knife') { bar(-0.02, 0.12, 0, 0.045, 0.045, '#5d4037'); bar(0.12, 0.42, 0, 0.05, 0.015, '#dfe6e9'); cone(0.42, 0.025, 0.07, '#dfe6e9'); tip = 0.5; }
+  else if (id === 'sword') { bar(-0.05, 0.1, 0, 0.045, 0.045, '#5d4037'); bar(0.1, 0.14, 0, 0.2, 0.07, '#f1c40f'); bar(0.14, 0.85, 0, 0.06, 0.018, '#dfe6e9'); cone(0.85, 0.03, 0.1, '#dfe6e9'); tip = 0.95; }
+  else if (id === 'axe') { bar(-0.05, 0.75, 0, 0.04, 0.04, '#8d6e63'); bar(0.5, 0.72, 0.09, 0.24, 0.035, '#b2bec3'); bar(0.7, 0.74, 0.09, 0.26, 0.04, '#dfe6e9'); tip = 0.75; }
+  else if (id === 'sling') { bar(0, 0.22, 0, 0.05, 0.05, '#8d6e63'); bar(0.2, 0.32, 0.07, 0.035, 0.035, '#8d6e63'); bar(0.2, 0.32, -0.07, 0.035, 0.035, '#8d6e63'); bar(0.3, 0.34, 0, 0.18, 0.012, '#e74c3c'); tip = 0.34; }
   else { bar(0, 0.6, 0, 0.1, 0.1, c); ball(0.6, 0, 0.07, dk); }
   g.userData.tip = tip;
   return g;
@@ -2553,6 +2611,7 @@ function updateRig(rig, o) {
   if (rig.cb !== o.body) { rig.cb = o.body; rig.bodyM.color.set(o.body); rig.legM.color.set(shade(o.body, -70)); }
   if (rig.ch !== o.head) { rig.ch = o.head; rig.headM.color.set(o.head); rig.capM.color.set(shade(o.head, -35)); }
   setGun(rig, o.weaponId, o.gunColor);
+  rig.holder.rotation.z = o.swing > 0 ? 0.9 - 1.8 * (1 - o.swing) : 0;
   rig.flash.visible = !!o.flash;
 }
 function makeBossExtras(rig, kind, gunHex) {
@@ -2761,7 +2820,19 @@ function draw3D() {
   pe.rig.g.visible = camMode !== 1;
   updateFpGun(camMode === 1, pg.id, pg.color, muzzleFlashTimer > 0 || beamFiring);
   const pLeg = !player.onGround ? 0.35 : (Math.abs(player.vx) > 0.3 ? Math.sin(frameCount * 0.35) * (Math.abs(player.vx) / player.speed) : 0);
-  updateRig(pe.rig, { x:player.x, y:player.y, facing:player.facing, w:player.w, h:STAND_H, crouch:player.crouchAmt, lean:player.lean, body:'#3498db', head:'#1f5f8b', legSwing:player.slide > 0 ? 0 : pLeg, weaponId:pg.id, gunColor:pg.color, flash: muzzleFlashTimer > 0 || beamFiring });
+  updateRig(pe.rig, { x:player.x, y:player.y, facing:player.facing, w:player.w, h:STAND_H, crouch:player.crouchAmt, lean:player.lean, body:'#3498db', head:'#1f5f8b', legSwing:player.slide > 0 ? 0 : pLeg, weaponId:pg.id, gunColor:pg.color, flash: muzzleFlashTimer > 0 || beamFiring, swing: pg.kind === 'melee' && player.swing > 0 ? player.swing / player.swingMax : 0 });
+  if (!R.slash) {
+    R.slash = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.7, 28, 1, -1.0, 2.0), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, side: THREE.DoubleSide, depthWrite: false }));
+    R.scene.add(R.slash);
+  }
+  const slashOn = pg.kind === 'melee' && player.swing > 0;
+  R.slash.visible = slashOn;
+  if (slashOn) {
+    const sr = (pg.range + player.w / 2) * S3, prog = 1 - player.swing / player.swingMax;
+    R.slash.position.set(player.x * S3, -(player.y - player.h * 0.6) * S3, 0.12);
+    R.slash.scale.set(player.facing * sr, sr, 1);
+    R.slash.material.color.set(pg.color); R.slash.material.opacity = 0.8 * (1 - prog);
+  }
   R.shield.visible = !!player.shieldActive && camMode !== 1;
   if (player.shieldActive) R.shield.position.set(player.x * S3, -player.y * S3 + 1.2, 0);
   R.beam.visible = !!beamFiring;
