@@ -171,6 +171,8 @@
 <div id="armoryScreen" class="overlay" style="display:none">
   <h1>Armory</h1>
   <p id="armoryCoins"></p>
+  <h2>Skins <span style="font-size:14px;color:#c39bff">(buy with 🟣 Hexbux)</span></h2>
+  <div id="skinList"></div>
   <h2>Weapons</h2>
   <div id="weaponList"></div>
   <h2>Upgrades</h2>
@@ -214,6 +216,7 @@
 </div>
 <div id="topRightHud" style="display:none">
   <div>💰 <span id="coinsHud">0</span></div>
+  <div style="color:#c39bff">🟣 <span id="hexHud">0</span></div>
   <div>Score: <span id="scoreHud">0</span></div>
 </div>
 <div id="bossBarWrap"><div id="bossName">BOSS</div><div id="bossBarBg"><div id="bossBarFill"></div></div></div>
@@ -278,14 +281,35 @@ function loadProfile() {
     if (raw) {
       const p = JSON.parse(raw);
       if (p.upgrades && p.upgrades.medkit === undefined) p.upgrades.medkit = 0;
-      return p;
+      return withHexbuxFields(p);
     }
   } catch (e) {}
   return null;
 }
+// Hexbux: the premium currency. Earned from first-time level clears, bosses and a daily bonus; spent on skins.
+function withHexbuxFields(p) {
+  if (typeof p.hexbux !== 'number') p.hexbux = 0;
+  if (!Array.isArray(p.skins)) p.skins = ['default'];
+  if (!p.skins.includes('default')) p.skins.unshift('default');
+  if (typeof p.skin !== 'string' || !p.skins.includes(p.skin)) p.skin = 'default';
+  if (typeof p.lastDaily !== 'string') p.lastDaily = '';
+  return p;
+}
+const SKINS = [
+  { id:'default', name:'Classic Blue',  cost:0,  body:'#3498db', head:'#1f5f8b' },
+  { id:'crimson', name:'Crimson',       cost:8,  body:'#e74c3c', head:'#7b241c' },
+  { id:'emerald', name:'Emerald',       cost:8,  body:'#2ecc71', head:'#1b7a43' },
+  { id:'gold',    name:'Golden Knight', cost:15, body:'#f1c40f', head:'#9a7d0a' },
+  { id:'shadow',  name:'Shadow Ninja',  cost:15, body:'#4b4f58', head:'#15171c' },
+  { id:'galaxy',  name:'Galaxy',        cost:25, body:'#8e44ad', head:'#341f97' },
+  { id:'candy',   name:'Candy Pink',    cost:25, body:'#ff7eb6', head:'#c2185b' },
+  { id:'hex',     name:'Hex Master',    cost:50, body:'#00e5ff', head:'#6a1b9a' }
+];
+function skinColors() { const s = SKINS.find(k => profile && k.id === profile.skin) || SKINS[0]; return { body: s.body, head: s.head }; }
+function todayStr() { const d = new Date(); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
 function saveProfile() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(profile)); } catch (e) {} if (typeof cloudSaveSoon === 'function') cloudSaveSoon(); }
 function defaultProfile(name) {
-  return { name, coins:0, unlockedLevel:1, completedLevels:[], ownedWeapons:['pistol'], upgrades:{vest:0,boots:0,medkit:0}, totalScore:0 };
+  return { name, coins:0, hexbux:0, skins:['default'], skin:'default', lastDaily:'', unlockedLevel:1, completedLevels:[], ownedWeapons:['pistol'], upgrades:{vest:0,boots:0,medkit:0}, totalScore:0 };
 }
 let profile = loadProfile();
 let currentGunId = 'pistol';
@@ -494,7 +518,10 @@ function showMainMenu() {
   document.getElementById('versusLeaderboard').style.display = 'none';
   document.getElementById('versusLeaveBtn').style.display = 'none';
   document.getElementById('welcomeText').textContent = 'Welcome, ' + profile.name + '!';
-  document.getElementById('menuStats').textContent = '💰 ' + profile.coins + ' coins   •   Levels cleared: ' + profile.completedLevels.length + '/100';
+  withHexbuxFields(profile);
+  let dailyMsg = '';
+  if (profile.lastDaily !== todayStr()) { profile.lastDaily = todayStr(); profile.hexbux += 1; saveProfile(); dailyMsg = '   🎁 Daily bonus: +1 Hexbux!'; }
+  document.getElementById('menuStats').textContent = '💰 ' + profile.coins + ' coins   •   🟣 ' + profile.hexbux + ' Hexbux   •   Levels cleared: ' + profile.completedLevels.length + '/100' + dailyMsg;
   if (typeof updateAcctUi === 'function') updateAcctUi();
   showScreen('mainMenu');
 }
@@ -513,7 +540,25 @@ function buildLevelGrid() {
   }
 }
 function buildArmory() {
-  document.getElementById('armoryCoins').textContent = '💰 You have ' + profile.coins + ' coins';
+  document.getElementById('armoryCoins').textContent = '💰 You have ' + profile.coins + ' coins   •   🟣 ' + profile.hexbux + ' Hexbux';
+  const sl = document.getElementById('skinList');
+  sl.innerHTML = '';
+  SKINS.forEach(s => {
+    const owned = profile.skins.includes(s.id), equipped = profile.skin === s.id;
+    const card = document.createElement('div');
+    card.className = 'card' + (owned ? ' owned' : '');
+    card.innerHTML = '<h3><span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:' + s.body + ';border:2px solid ' + s.head + ';vertical-align:middle;margin-right:6px"></span>' + s.name + '</h3>' +
+      (equipped ? '<p style="color:#2ecc71">Equipped</p>' : owned ? '<button class="btn" style="padding:6px 14px;font-size:13px;margin:0">Equip</button>' : '<button class="btn" style="padding:6px 14px;font-size:13px;margin:0">Buy ' + s.cost + '🟣</button>');
+    const btn = card.querySelector('button');
+    if (btn) {
+      if (!owned) btn.disabled = profile.hexbux < s.cost;
+      btn.onclick = () => {
+        if (!owned) { if (profile.hexbux < s.cost) return; profile.hexbux -= s.cost; profile.skins.push(s.id); }
+        profile.skin = s.id; saveProfile(); buildArmory();
+      };
+    }
+    sl.appendChild(card);
+  });
   const wl = document.getElementById('weaponList');
   wl.innerHTML = '';
   GUNS.forEach(g => {
@@ -859,11 +904,15 @@ function onLevelComplete() {
   const cfg = currentLevelConfig;
   const coinsEarned = 15 + cfg.level * 3 + (cfg.isBoss ? 100 : 0) + (cfg.final ? 300 : 0) + coinsThisRun;
   profile.coins += coinsEarned;
+  withHexbuxFields(profile);
+  const firstClear = !profile.completedLevels.includes(cfg.level);
+  const hexEarned = firstClear ? 1 + (cfg.isBoss ? 4 : 0) + (cfg.final ? 20 : 0) : 0;
+  profile.hexbux += hexEarned;
   if (!profile.completedLevels.includes(cfg.level)) profile.completedLevels.push(cfg.level);
   profile.unlockedLevel = Math.max(profile.unlockedLevel, Math.min(cfg.level + 1, 100));
   profile.totalScore += runScore;
   saveProfile();
-  document.getElementById('levelCompleteStats').innerHTML = 'Level ' + cfg.level + ' cleared!<br>Coins earned: +' + coinsEarned + '<br>Score: ' + runScore;
+  document.getElementById('levelCompleteStats').innerHTML = 'Level ' + cfg.level + ' cleared!<br>Coins earned: +' + coinsEarned + (hexEarned ? '<br><span style="color:#c39bff">🟣 Hexbux earned: +' + hexEarned + '</span>' : '') + '<br>Score: ' + runScore;
   document.getElementById('nextLevelBtn').style.display = cfg.level < 100 ? 'inline-block' : 'none';
   showScreen('levelCompleteScreen');
 }
@@ -1109,6 +1158,7 @@ function update() {
   medkitEl.style.color = player.medkits > 0 ? '#2ecc71' : '#888';
   document.getElementById('enemyCount').textContent = 'Enemies: ' + (enemies.length + enemiesLeftInWave) + (currentLevelConfig.isBoss ? ' (BOSS)' : '');
   document.getElementById('coinsHud').textContent = (profile.coins + coinsThisRun);
+  document.getElementById('hexHud').textContent = profile.hexbux || 0;
   document.getElementById('scoreHud').textContent = runScore;
 
   const ammoEl = document.getElementById('ammoDisplay');
@@ -1759,7 +1809,8 @@ function draw() {
 
   const ps = worldToScreen(player.x, player.y);
   const playerLegSwing = !player.onGround ? 0.35 : (Math.abs(player.vx) > 0.3 ? Math.sin(frameCount * 0.35) * (Math.abs(player.vx) / player.speed) : 0);
-  drawCharacter(ps, player.w*zoom, player.h*zoom, player.facing, '#3498db', '#1f5f8b', { legSwing: playerLegSwing, gunColor: currentGun().color, weaponId: currentGun().id, muzzleFlash: muzzleFlashTimer > 0 || beamFiring, gunLen: player.w * (currentGun().kind === 'beam' ? 0.7 : 0.95) });
+  const skin = skinColors();
+  drawCharacter(ps, player.w*zoom, player.h*zoom, player.facing, skin.body, skin.head, { legSwing: playerLegSwing, gunColor: currentGun().color, weaponId: currentGun().id, muzzleFlash: muzzleFlashTimer > 0 || beamFiring, gunLen: player.w * (currentGun().kind === 'beam' ? 0.7 : 0.95) });
   if (player.swing > 0 && currentGun().kind === 'melee') {
     const mg = currentGun(), mp = 1 - player.swing / player.swingMax, mc = player.facing > 0 ? 0 : Math.PI;
     ctx.save(); ctx.strokeStyle = mg.color; ctx.globalAlpha = 0.85 * (1 - mp); ctx.lineWidth = 7 * zoom; ctx.lineCap = 'round';
@@ -1861,7 +1912,7 @@ function colorForId(id) {
 }
 function colorFor(p, id) {
   if (versusMode === 'team') return p.team === 'red' ? '#e74c3c' : '#2980b9';
-  return id === myId ? '#3498db' : colorForId(id);
+  return id === myId ? skinColors().body : colorForId(id);
 }
 
 function netBroadcast(data, exceptId) {
@@ -2816,11 +2867,12 @@ function draw3D() {
   placeCamera(t, player);
 
   const pg = currentGun();
-  const pe = ent(player, () => charEnt('#3498db', '#1f5f8b', false));
+  const skin = skinColors();
+  const pe = ent(player, () => charEnt(skin.body, skin.head, false));
   pe.rig.g.visible = camMode !== 1;
   updateFpGun(camMode === 1, pg.id, pg.color, muzzleFlashTimer > 0 || beamFiring);
   const pLeg = !player.onGround ? 0.35 : (Math.abs(player.vx) > 0.3 ? Math.sin(frameCount * 0.35) * (Math.abs(player.vx) / player.speed) : 0);
-  updateRig(pe.rig, { x:player.x, y:player.y, facing:player.facing, w:player.w, h:STAND_H, crouch:player.crouchAmt, lean:player.lean, body:'#3498db', head:'#1f5f8b', legSwing:player.slide > 0 ? 0 : pLeg, weaponId:pg.id, gunColor:pg.color, flash: muzzleFlashTimer > 0 || beamFiring, swing: pg.kind === 'melee' && player.swing > 0 ? player.swing / player.swingMax : 0 });
+  updateRig(pe.rig, { x:player.x, y:player.y, facing:player.facing, w:player.w, h:STAND_H, crouch:player.crouchAmt, lean:player.lean, body:skin.body, head:skin.head, legSwing:player.slide > 0 ? 0 : pLeg, weaponId:pg.id, gunColor:pg.color, flash: muzzleFlashTimer > 0 || beamFiring, swing: pg.kind === 'melee' && player.swing > 0 ? player.swing / player.swingMax : 0 });
   if (!R.slash) {
     R.slash = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.7, 28, 1, -1.0, 2.0), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, side: THREE.DoubleSide, depthWrite: false }));
     R.scene.add(R.slash);
@@ -2954,6 +3006,10 @@ function cleanProfile(p) {
   return {
     name: String(p.name || 'Player').slice(0, 14),
     coins: int(p.coins, 0, 10000000),
+    hexbux: int(p.hexbux, 0, 1000000),
+    skins: ['default'].concat((p.skins || []).filter((s, i, a) => SKINS.some(k => k.id === s) && s !== 'default' && a.indexOf(s) === i)),
+    skin: SKINS.some(k => k.id === p.skin) && (p.skins || []).concat('default').includes(p.skin) ? p.skin : 'default',
+    lastDaily: String(p.lastDaily || '').slice(0, 12),
     unlockedLevel: int(p.unlockedLevel, 1, 100),
     completedLevels: (p.completedLevels || []).map(n => int(n, 1, 100)).filter((n, i, a) => a.indexOf(n) === i).slice(0, 100),
     ownedWeapons: (p.ownedWeapons || ['pistol']).filter(w => GUNS.some(g => g.id === w)).slice(0, 20),
