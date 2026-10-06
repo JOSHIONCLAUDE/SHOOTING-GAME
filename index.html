@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Cursed Strikes</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1a0b2e">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Cursed Strikes">
 <style>
   html, body { margin:0; padding:0; overflow:hidden; background:#000; font-family:'Segoe UI', Arial, sans-serif; touch-action:manipulation; overscroll-behavior:none; -webkit-tap-highlight-color:transparent; }
   canvas { display:block; cursor:crosshair; position:absolute; top:0; left:0; z-index:1; }
@@ -124,9 +131,11 @@
 </div>
 
 <div id="mainMenu" class="overlay" style="display:none">
+  <img src="logo-512.png" alt="Cursed Strikes logo" style="width:min(120px,22vh);height:auto;margin-bottom:4px">
   <h1 id="welcomeText">Welcome!</h1>
   <p id="menuStats"></p>
   <button class="btn" id="playBtn">▶ Play</button>
+  <button class="btn secondary" id="installBtn" style="display:none">📲 Install app</button>
   <button class="btn secondary" id="levelSelectBtn">🗺 Level Select</button>
   <button class="btn secondary" id="armoryBtn">🎒 Armory</button>
   <button class="btn secondary" id="versusBtn">⚔ 1v1 Online</button>
@@ -3221,6 +3230,23 @@ document.getElementById('touchBtn').onclick = () => {
   const sel = document.getElementById('versusMapSel');
   BIOMES.forEach((b, i) => { const o = document.createElement('option'); o.value = i; o.textContent = b.name; sel.appendChild(o); });
 })();
+
+// ---------- Install as an app (PWA) ----------
+let installPrompt = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault(); installPrompt = e;
+  document.getElementById('installBtn').style.display = 'inline-block';
+});
+window.addEventListener('appinstalled', () => { installPrompt = null; document.getElementById('installBtn').style.display = 'none'; });
+document.getElementById('installBtn').onclick = async () => {
+  if (!installPrompt) return;
+  installPrompt.prompt();
+  try { await installPrompt.userChoice; } catch (e) {}
+  installPrompt = null; document.getElementById('installBtn').style.display = 'none';
+};
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => {}); });
+}
 
 // ---------- Wiring ----------
 document.getElementById('createProfileBtn').onclick = () => {
