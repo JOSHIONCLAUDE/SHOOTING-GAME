@@ -217,7 +217,7 @@
   <div>Score: <span id="scoreHud">0</span></div>
 </div>
 <div id="bossBarWrap"><div id="bossName">BOSS</div><div id="bossBarBg"><div id="bossBarFill"></div></div></div>
-<div id="pauseHint" style="display:none">ESC to pause &bull; F5 camera view</div>
+<div id="pauseHint" style="display:none">ESC to pause &bull; F5 camera view &bull; C crouch (tap while running = slide)</div>
 
 <div id="touchUI">
   <div id="tRotate">Please turn your phone sideways (landscape) to play</div>
@@ -233,6 +233,7 @@
       <button class="tBtn tSm" id="tShield" aria-label="Shield">Q</button>
       <button class="tBtn tSm" id="tWeapon" aria-label="Next weapon">&#128299;</button>
       <button class="tBtn tSm" id="tCam" aria-label="Change camera">&#128247;</button>
+      <button class="tBtn tSm" id="tCrouch" aria-label="Crouch or slide">C</button>
     </div>
     <button class="tBtn" id="tJump" aria-label="Jump">&#9650;</button>
     <button class="tBtn" id="tFire" aria-label="Fire">&#10006;</button>
@@ -400,7 +401,7 @@ let muzzleFlashTimer = 0;
 let killStreak = 0, killStreakTimer = 0;
 const KILL_WORDS = ['Nice!', 'Good!', 'Great!', 'Excellent!', 'Superb!', 'Amazing!', 'Unstoppable!', 'Godlike!'];
 
-const player = { x:0, y:GROUND_Y, w:28, h:46, vx:0, vy:0, speed:5, onGround:true, health:100, maxHealth:100, facing:1, invuln:0, shieldMeter:100, shieldActive:false, medkits:1, medkitCooldown:0 };
+const player = { x:0, y:GROUND_Y, w:28, h:46, vx:0, vy:0, speed:5, onGround:true, health:100, maxHealth:100, facing:1, invuln:0, shieldMeter:100, shieldActive:false, medkits:1, medkitCooldown:0, slide:0, slideDir:1, slideCd:0, crouchAmt:0, lean:0 };
 function damagePlayer(amount) { if (!player.shieldActive) player.health -= amount; }
 const keys = {};
 let mouse = { x:0, y:0, down:false };
@@ -554,9 +555,32 @@ function renderWeaponBar() {
 }
 function switchGun(id) { if (profile.ownedWeapons.includes(id)) { currentGunId = id; renderWeaponBar(); } }
 
+// ---------- Crouch & knee slide (C) ----------
+const STAND_H = 46, SLIDE_FRAMES = 40;
+// Hold C to crouch (smaller target, slower). Tap C while running to knee slide:
+// a fast low glide that ducks under enemy shots. Jumping cancels the slide.
+function stanceStep(a, crouchHeld) {
+  if (a.slide > 0) { a.slide--; if (!a.onGround) a.slide = 0; if (a.slide === 0) a.slideCd = 25; }
+  if (a.slideCd > 0) a.slideCd--;
+  const target = a.slide > 0 ? 1 : (crouchHeld && a.onGround ? 0.6 : 0);
+  a.crouchAmt += (target - a.crouchAmt) * 0.35;
+  a.lean += ((a.slide > 0 ? 1 : 0) - a.lean) * 0.3;
+  a.h = STAND_H * (1 - 0.55 * a.crouchAmt);
+}
+function tryStartSlide(a, speed) {
+  if (!a.onGround || a.slide > 0 || a.slideCd > 0 || Math.abs(a.vx) < speed * 0.6) return;
+  a.slide = SLIDE_FRAMES; a.slideDir = a.vx > 0 ? 1 : -1;
+  tone(150, 0.3, 'sawtooth', 0.05, 60);
+}
+function slideVx(a, speed) { return a.slideDir * speed * (0.5 + 1.4 * a.slide / SLIDE_FRAMES); }
+
 // ---------- Input ----------
 window.addEventListener('keydown', e => {
-  if (e.key === ' ' || ((running || versusRunning) && ['a', 'd', 'w', 'q', 'r', 'f'].includes(e.key.toLowerCase()))) e.preventDefault();
+  if (e.key === ' ' || ((running || versusRunning) && ['a', 'd', 'w', 'q', 'r', 'f', 'c'].includes(e.key.toLowerCase()) && !e.ctrlKey && !e.metaKey)) e.preventDefault();
+  if (e.key.toLowerCase() === 'c' && !e.repeat && !paused && !e.ctrlKey && !e.metaKey) {
+    if (running) tryStartSlide(player, player.speed);
+    else if (versusRunning && localV && !localV.dead) tryStartSlide(localV, 5);
+  }
   keys[e.key.toLowerCase()] = true;
   if (e.key === 'Shift') zoom = ZOOM_LEVEL;
   if ((e.key === ' ' || e.key.toLowerCase() === 'w') && (running || versusRunning) && !paused) jumpQueued = true;
@@ -846,19 +870,23 @@ function update() {
   let dx = 0;
   if (keys['a']) dx -= 1;
   if (keys['d']) dx += 1;
-  const targetVx = dx * player.speed;
-  player.vx += (targetVx - player.vx) * 0.35;
-  if (Math.abs(player.vx) < 0.05) player.vx = 0;
+  if (player.slide > 0) player.vx = slideVx(player, player.speed);
+  else {
+    const targetVx = dx * player.speed * (keys['c'] && player.onGround ? 0.5 : 1);
+    player.vx += (targetVx - player.vx) * 0.35;
+    if (Math.abs(player.vx) < 0.05) player.vx = 0;
+  }
   player.x += player.vx;
-  if (dx !== 0 && !lookActive()) player.facing = dx > 0 ? 1 : -1;
+  if (dx !== 0 && !lookActive() && player.slide <= 0) player.facing = dx > 0 ? 1 : -1;
   syncLook(player);
 
   if (player.onGround) coyoteTimer = 6; else if (coyoteTimer > 0) coyoteTimer--;
   if (jumpQueued) { jumpBufferTimer = 6; jumpQueued = false; } else if (jumpBufferTimer > 0) jumpBufferTimer--;
-  if (jumpBufferTimer > 0 && coyoteTimer > 0) { player.vy = JUMP_FORCE; player.onGround = false; jumpBufferTimer = 0; coyoteTimer = 0; sfxJump(); }
+  if (jumpBufferTimer > 0 && coyoteTimer > 0) { player.vy = JUMP_FORCE; player.onGround = false; jumpBufferTimer = 0; coyoteTimer = 0; player.slide = 0; sfxJump(); }
 
   player.vy += GRAVITY; player.y += player.vy;
   if (player.y >= GROUND_Y) { player.y = GROUND_Y; player.vy = 0; player.onGround = true; }
+  stanceStep(player, !!keys['c']);
 
   if (fireCooldown > 0) fireCooldown--;
   if (muzzleFlashTimer > 0) muzzleFlashTimer--;
@@ -959,7 +987,7 @@ function update() {
   enemyProjectiles.forEach(p => {
     if (p.life <= 0) return;
     const ddx = Math.abs(p.x - player.x), ddy = Math.abs(p.y - (player.y - player.h / 2));
-    if (ddx < player.w / 2 + 6 && ddy < player.h / 2 + 10 && player.invuln <= 0) {
+    if (ddx < player.w / 2 + 6 && ddy < player.h / 2 + 3 && player.invuln <= 0) {
       damagePlayer(p.damage); player.invuln = 20; damageFlash = player.shieldActive ? 0 : 0.4; p.life = 0;
       if (!player.shieldActive) sfxDamage();
     }
@@ -1768,7 +1796,8 @@ const SPAWN_RANGE = 900;
 
 function vp(name, team) {
   return { x:(Math.random()*2-1)*SPAWN_RANGE, y:GROUND_Y, vx:0, vy:0, onGround:true, facing: Math.random()<0.5?1:-1,
-    health:100, maxHealth:100, w:28, h:46, team, name, kills:0, dead:false, respawnTimer:0, lastHitBy:null };
+    health:100, maxHealth:100, w:28, h:46, team, name, kills:0, dead:false, respawnTimer:0, lastHitBy:null,
+    slide:0, slideDir:1, slideCd:0, crouchAmt:0, lean:0 };
 }
 function showVersusStatus(msg) { const el = document.getElementById('versusStatus'); if (el) el.textContent = msg; }
 function colorForId(id) {
@@ -1815,6 +1844,7 @@ function processVersusMessage(data) {
   } else if (data.type === 'state') {
     const p = others.get(fromId); if (!p) return;
     p.x = data.x; p.y = data.y; p.vx = data.vx; p.facing = data.facing; p.health = data.health; p.dead = data.dead; p.onGround = data.onGround;
+    p.crouchAmt = Math.max(0, Math.min(1, +data.cr || 0)); p.lean = Math.max(0, Math.min(1, +data.ln || 0)); p.h = STAND_H * (1 - 0.55 * p.crouchAmt);
   } else if (data.type === 'shoot') {
     versusBullets.push({ x:data.x, y:data.y, vx: data.facing * 10, vy:0, life:94, damage:18, ownerId: fromId, ownerTeam: data.team });
   } else if (data.type === 'kill') {
@@ -1928,21 +1958,25 @@ function versusUpdate() {
     let dx = 0;
     if (keys['a']) dx -= 1;
     if (keys['d']) dx += 1;
-    const targetVx = dx * 5;
-    localV.vx += (targetVx - localV.vx) * 0.35;
-    if (Math.abs(localV.vx) < 0.05) localV.vx = 0;
+    if (localV.slide > 0) localV.vx = slideVx(localV, 5);
+    else {
+      const targetVx = dx * 5 * (keys['c'] && localV.onGround ? 0.5 : 1);
+      localV.vx += (targetVx - localV.vx) * 0.35;
+      if (Math.abs(localV.vx) < 0.05) localV.vx = 0;
+    }
     localV.x += localV.vx;
-    if (dx !== 0 && !lookActive()) localV.facing = dx > 0 ? 1 : -1;
+    if (dx !== 0 && !lookActive() && localV.slide <= 0) localV.facing = dx > 0 ? 1 : -1;
     syncLook(localV);
 
-    if (jumpQueued && localV.onGround) { localV.vy = JUMP_FORCE; localV.onGround = false; }
+    if (jumpQueued && localV.onGround) { localV.vy = JUMP_FORCE; localV.onGround = false; localV.slide = 0; }
     localV.vy += GRAVITY; localV.y += localV.vy;
     if (localV.y >= GROUND_Y) { localV.y = GROUND_Y; localV.vy = 0; localV.onGround = true; }
+    stanceStep(localV, !!keys['c']);
 
     if (fireCooldown > 0) fireCooldown--;
     if (mouse.down && fireCooldown <= 0) {
       fireCooldown = 12;
-      const bx = localV.x + localV.facing * 20, by = localV.y - 28;
+      const bx = localV.x + localV.facing * 20, by = localV.y - localV.h * 0.6;
       versusBullets.push({ x:bx, y:by, vx: localV.facing * 10, vy:0, life:94, damage:18, ownerId: myId, ownerTeam: localV.team });
       netBroadcast({ type:'shoot', from: myId, x:bx, y:by, facing: localV.facing, team: localV.team });
       sfxShoot('bullet');
@@ -1955,7 +1989,7 @@ function versusUpdate() {
     if (b.ownerId !== myId && !localV.dead) {
       if (versusMode === 'team' && b.ownerTeam === localV.team) return;
       const ddx = Math.abs(b.x - localV.x), ddy = Math.abs(b.y - (localV.y - localV.h * 0.5));
-      if (ddx < localV.w / 2 + 8 && ddy < localV.h / 2 + 8) {
+      if (ddx < localV.w / 2 + 8 && ddy < localV.h / 2 + 3) {
         localV.health -= b.damage; b.life = 0; localV.lastHitBy = b.ownerId;
         sfxDamage();
         if (localV.health <= 0) {
@@ -1976,7 +2010,7 @@ function versusUpdate() {
   const now = performance.now();
   if (now - lastNetSend > 45) {
     lastNetSend = now;
-    netBroadcast({ type:'state', from: myId, x: localV.x, y: localV.y, vx: localV.vx, facing: localV.facing, health: localV.health, dead: localV.dead, onGround: localV.onGround });
+    netBroadcast({ type:'state', from: myId, x: localV.x, y: localV.y, vx: localV.vx, facing: localV.facing, health: localV.health, dead: localV.dead, onGround: localV.onGround, cr: +localV.crouchAmt.toFixed(2), ln: +localV.lean.toFixed(2) });
   }
 
   updateVersusHud();
@@ -2512,7 +2546,9 @@ function setGun(rig, id, color) {
 function updateRig(rig, o) {
   const s = o.h * S3, k = Math.max(0.6, Math.min(1.6, (o.w / o.h) / 0.62));
   rig.g.position.set(o.x * S3, -o.y * S3, 0);
-  rig.g.scale.set(o.facing > 0 ? s : -s, s, s * k);
+  const cr = o.crouch || 0;
+  rig.g.scale.set(o.facing > 0 ? s : -s, s * (1 - 0.55 * cr), s * k);
+  rig.g.rotation.z = (o.facing > 0 ? 1 : -1) * (o.lean || 0) * 0.9;
   rig.legs[0].rotation.z = o.legSwing * 0.9; rig.legs[1].rotation.z = -o.legSwing * 0.9;
   if (rig.cb !== o.body) { rig.cb = o.body; rig.bodyM.color.set(o.body); rig.legM.color.set(shade(o.body, -70)); }
   if (rig.ch !== o.head) { rig.ch = o.head; rig.headM.color.set(o.head); rig.capM.color.set(shade(o.head, -35)); }
@@ -2639,7 +2675,7 @@ function placeCamera(t, me) {
   look.cyaw += (look.yaw - look.cyaw) * sm; look.cpitch += (look.pitch - look.cpitch) * sm;
   const cy = Math.cos(look.cyaw), sy = Math.sin(look.cyaw), cp = Math.cos(look.cpitch), sp = Math.sin(look.cpitch);
   const f = [cy * cp, sp, sy * cp], rt = [-sy, 0, cy];
-  const hx = mx, hy = my + 1.95;
+  const hx = mx, hy = my + 1.95 * (1 - 0.55 * (me.crouchAmt || 0));
   let p, l;
   if (camMode === 0) { p = [camX - 5, 4, 18]; l = [camX, 4.6, 0]; }
   else if (camMode === 1) { p = [hx + cy * 0.3, hy + 0.1, sy * 0.3]; l = [p[0] + f[0] * 20, p[1] + f[1] * 20, p[2] + f[2] * 20]; }
@@ -2725,7 +2761,7 @@ function draw3D() {
   pe.rig.g.visible = camMode !== 1;
   updateFpGun(camMode === 1, pg.id, pg.color, muzzleFlashTimer > 0 || beamFiring);
   const pLeg = !player.onGround ? 0.35 : (Math.abs(player.vx) > 0.3 ? Math.sin(frameCount * 0.35) * (Math.abs(player.vx) / player.speed) : 0);
-  updateRig(pe.rig, { x:player.x, y:player.y, facing:player.facing, w:player.w, h:player.h, body:'#3498db', head:'#1f5f8b', legSwing:pLeg, weaponId:pg.id, gunColor:pg.color, flash: muzzleFlashTimer > 0 || beamFiring });
+  updateRig(pe.rig, { x:player.x, y:player.y, facing:player.facing, w:player.w, h:STAND_H, crouch:player.crouchAmt, lean:player.lean, body:'#3498db', head:'#1f5f8b', legSwing:player.slide > 0 ? 0 : pLeg, weaponId:pg.id, gunColor:pg.color, flash: muzzleFlashTimer > 0 || beamFiring });
   R.shield.visible = !!player.shieldActive && camMode !== 1;
   if (player.shieldActive) R.shield.position.set(player.x * S3, -player.y * S3 + 1.2, 0);
   R.beam.visible = !!beamFiring;
@@ -2779,7 +2815,7 @@ function drawVersus3D() {
   const put = (p, id) => {
     const c = colorFor(p, id);
     const e = ent(p, () => charEnt(c, shade(c, -40), false));
-    updateRig(e.rig, { x:p.x, y:p.y, facing:p.facing, w:p.w, h:p.h, body:c, head:shade(c, -40), legSwing: Math.sin(frameCount * 0.35) * Math.min(1, Math.abs(p.vx || 0) / 5), weaponId:'pistol', gunColor:'#f1c40f', flash:false });
+    updateRig(e.rig, { x:p.x, y:p.y, facing:p.facing, w:p.w, h:STAND_H, crouch:p.crouchAmt, lean:p.lean, body:c, head:shade(c, -40), legSwing: p.slide > 0 || p.lean > 0.5 ? 0 : Math.sin(frameCount * 0.35) * Math.min(1, Math.abs(p.vx || 0) / 5), weaponId:'pistol', gunColor:'#f1c40f', flash:false });
   };
   if (!localV.dead) { put(localV, myId); R.ents.get(localV).rig.g.visible = camMode !== 1; }
   others.forEach((p, id) => { if (!p.dead) put(p, id); });
@@ -3024,6 +3060,7 @@ bindTouch('tShield', () => { keys['q'] = true; }, () => { keys['q'] = false; });
 bindTouch('tReload', () => tapKey('r'));
 bindTouch('tHeal', () => tapKey('f'));
 bindTouch('tCam', () => tapKey('F5'));
+bindTouch('tCrouch', () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'c' })), () => window.dispatchEvent(new KeyboardEvent('keyup', { key: 'c' })));
 bindTouch('tPause', () => tapKey('Escape'));
 bindTouch('tWeapon', () => {
   const owned = GUNS.filter(g => profile && profile.ownedWeapons.includes(g.id));
